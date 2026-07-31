@@ -1,0 +1,10 @@
+{
+  "extends": "expo/tsconfig.base",
+  "compilerOptions": {
+    "strict": true,
+    "paths": {
+      "@dahamkke/shared": ["../../packages/shared/src"],
+      "@dahamkke/domain": ["../../packages/domain/src"]
+    }
+  }
+}
