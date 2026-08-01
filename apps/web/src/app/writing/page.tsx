@@ -1,6 +1,7 @@
 'use client';
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
+import { supabase } from '../../lib/supabase';
 
 const WORDS = [
   // 자연
@@ -47,20 +48,37 @@ const SENTENCES = [
   '우리 반 친구들은 모두 소중합니다.',
 ];
 
+// 단어 1P, 문장 2P
+const PTS_PER_ITEM = { word: 1, sentence: 2 };
+
 type Mode = 'select' | 'word' | 'sentence';
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
 export default function WritingPage() {
   const [mode, setMode] = useState<Mode>('select');
   const [index, setIndex] = useState(0);
+  const [list, setList] = useState<string[]>([]);
+  const [visited, setVisited] = useState<Set<number>>(new Set());
+  const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
   const [penColor, setPenColor] = useState('#1F2937');
   const lastPos = useRef<{ x: number; y: number } | null>(null);
 
-  const list = mode === 'word' ? WORDS : SENTENCES;
   const current = list[index] ?? '';
-
   const canvasH = mode === 'sentence' ? 300 : 240;
+  const ptsPerItem = mode === 'word' ? PTS_PER_ITEM.word : PTS_PER_ITEM.sentence;
+  const earnedScore = visited.size * ptsPerItem;
 
   const initCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -69,7 +87,6 @@ export default function WritingPage() {
     if (!ctx) return;
     ctx.fillStyle = '#FFFFFF';
     ctx.fillRect(0, 0, canvas.width, canvas.height);
-
     ctx.strokeStyle = '#E5E7EB';
     ctx.lineWidth = 1;
     const step = canvas.width / 4;
@@ -85,7 +102,10 @@ export default function WritingPage() {
   }, []);
 
   useEffect(() => {
-    if (mode !== 'select') initCanvas();
+    if (mode !== 'select') {
+      initCanvas();
+      setVisited(prev => new Set(prev).add(index));
+    }
   }, [index, mode, initCanvas]);
 
   const getPos = (e: React.MouseEvent | React.TouchEvent) => {
@@ -94,153 +114,123 @@ export default function WritingPage() {
     const scaleX = canvas.width / rect.width;
     const scaleY = canvas.height / rect.height;
     if ('touches' in e) {
-      return {
-        x: (e.touches[0].clientX - rect.left) * scaleX,
-        y: (e.touches[0].clientY - rect.top) * scaleY,
-      };
+      return { x: (e.touches[0].clientX - rect.left) * scaleX, y: (e.touches[0].clientY - rect.top) * scaleY };
     }
-    return {
-      x: (e.clientX - rect.left) * scaleX,
-      y: (e.clientY - rect.top) * scaleY,
-    };
+    return { x: (e.clientX - rect.left) * scaleX, y: (e.clientY - rect.top) * scaleY };
   };
 
-  const startDraw = (e: React.MouseEvent | React.TouchEvent) => {
-    e.preventDefault();
-    setIsDrawing(true);
-    lastPos.current = getPos(e);
-  };
-
+  const startDraw = (e: React.MouseEvent | React.TouchEvent) => { e.preventDefault(); setIsDrawing(true); lastPos.current = getPos(e); };
   const draw = (e: React.MouseEvent | React.TouchEvent) => {
     e.preventDefault();
     if (!isDrawing || !lastPos.current) return;
-    const canvas = canvasRef.current!;
-    const ctx = canvas.getContext('2d')!;
+    const ctx = canvasRef.current!.getContext('2d')!;
     const pos = getPos(e);
-    ctx.beginPath();
-    ctx.moveTo(lastPos.current.x, lastPos.current.y);
-    ctx.lineTo(pos.x, pos.y);
-    ctx.strokeStyle = penColor;
-    ctx.lineWidth = mode === 'sentence' ? 3 : 4;
-    ctx.lineCap = 'round';
-    ctx.lineJoin = 'round';
-    ctx.stroke();
+    ctx.beginPath(); ctx.moveTo(lastPos.current.x, lastPos.current.y); ctx.lineTo(pos.x, pos.y);
+    ctx.strokeStyle = penColor; ctx.lineWidth = mode === 'sentence' ? 3 : 4;
+    ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
     lastPos.current = pos;
   };
-
   const endDraw = () => { setIsDrawing(false); lastPos.current = null; };
 
-  const prev = () => setIndex(i => (i - 1 + list.length) % list.length);
-  const next = () => setIndex(i => (i + 1) % list.length);
+  const total = list.length || 1;
+  const prev = () => { setIndex(i => { const n = (i - 1 + total) % total; setVisited(v => new Set(v).add(n)); return n; }); };
+  const next = () => { setIndex(i => { const n = (i + 1) % total; setVisited(v => new Set(v).add(n)); return n; }); };
+
+  const saveSession = async () => {
+    if (isSaved || isSaving || visited.size === 0) return;
+    setIsSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) { alert('로그인이 필요합니다.'); return; }
+      const typeLabel = mode === 'word' ? '단어' : '문장';
+      const content = `[글씨 쓰기] ${typeLabel} ${visited.size}개 연습 · ${earnedScore}점`;
+      const { error } = await supabase.from('learning_records')
+        .insert({ user_id: user.id, type: 'writing', content, language: 'ko', score: earnedScore });
+      if (error) { alert(`저장 실패: ${error.message}`); return; }
+      setIsSaved(true);
+    } finally {
+      setIsSaving(false);
+    }
+  };
 
   const colors = ['#1F2937', '#EF4444', '#3B82F6', '#10B981', '#8B5CF6'];
+  const accent = mode === 'word' ? '#84CC16' : '#3B82F6';
+  const wordFontSize = mode === 'word' ? 64 : 22;
 
   // 선택 화면
   if (mode === 'select') {
     return (
       <div style={{ maxWidth: 480, margin: '0 auto', padding: '48px 16px', textAlign: 'center' }}>
-        <h2 style={{ fontSize: 24, fontWeight: 'bold', color: '#1F2937', marginBottom: 8 }}>
-          🖊️ 글씨 쓰기 연습
-        </h2>
-        <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 48 }}>
-          무엇을 연습할까요?
-        </p>
+        <h2 style={{ fontSize: 24, fontWeight: 'bold', color: '#1F2937', marginBottom: 8 }}>🖊️ 글씨 쓰기 연습</h2>
+        <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 48 }}>무엇을 연습할까요?</p>
         <div style={{ display: 'flex', gap: 20, justifyContent: 'center' }}>
           <button
-            onClick={() => { setIndex(0); setMode('word'); }}
+            onClick={() => { setList(shuffle(WORDS)); setIndex(0); setVisited(new Set([0])); setIsSaved(false); setMode('word'); }}
             style={selectCard('#84CC16', '#F7FEE7')}
           >
             <div style={{ fontSize: 52, marginBottom: 12 }}>🔤</div>
             <div style={{ fontSize: 20, fontWeight: 'bold', color: '#365314', marginBottom: 8 }}>단어</div>
-            <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>
-              낱말 100개를<br />한 글자씩 또박또박
-            </div>
+            <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>낱말 100개 · 단어당 1P</div>
           </button>
           <button
-            onClick={() => { setIndex(0); setMode('sentence'); }}
+            onClick={() => { setList(shuffle(SENTENCES)); setIndex(0); setVisited(new Set([0])); setIsSaved(false); setMode('sentence'); }}
             style={selectCard('#3B82F6', '#EFF6FF')}
           >
             <div style={{ fontSize: 52, marginBottom: 12 }}>📝</div>
             <div style={{ fontSize: 20, fontWeight: 'bold', color: '#1E3A8A', marginBottom: 8 }}>문장</div>
-            <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>
-              교과서 문장 20개를<br />문장 전체 써보기
-            </div>
+            <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>교과서 문장 20개 · 문장당 2P</div>
           </button>
         </div>
       </div>
     );
   }
 
-  const accent = mode === 'word' ? '#84CC16' : '#3B82F6';
-  const wordFontSize = mode === 'word' ? 64 : 22;
-
   return (
     <div style={{ maxWidth: 520, margin: '0 auto', padding: '24px 16px' }}>
-      <div style={{ display: 'flex', alignItems: 'center', gap: 12, marginBottom: 20 }}>
-        <button
-          onClick={() => setMode('select')}
-          style={{ background: 'none', border: 'none', fontSize: 14, color: '#6B7280', cursor: 'pointer', padding: '4px 0' }}
-        >
-          ← 돌아가기
-        </button>
-        <h2 style={{ margin: 0, fontSize: 18, fontWeight: 'bold', color: '#1F2937' }}>
-          {mode === 'word' ? '🔤 단어 쓰기' : '📝 문장 쓰기'}
-        </h2>
+      <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
+        <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
+          <button
+            onClick={() => setMode('select')}
+            style={{ background: 'none', border: 'none', fontSize: 14, color: '#6B7280', cursor: 'pointer' }}
+          >
+            ← 돌아가기
+          </button>
+          <h2 style={{ margin: 0, fontSize: 18, fontWeight: 'bold', color: '#1F2937' }}>
+            {mode === 'word' ? '🔤 단어 쓰기' : '📝 문장 쓰기'}
+          </h2>
+        </div>
+        {/* 점수 표시 */}
+        <div style={{ background: '#FEF3C7', borderRadius: 10, padding: '6px 14px', fontSize: 13, fontWeight: 'bold', color: '#92400E' }}>
+          ⭐ {earnedScore}P ({visited.size}개 연습)
+        </div>
       </div>
 
       {/* 제시 카드 */}
       <div style={{
         backgroundColor: mode === 'word' ? '#F7FEE7' : '#EFF6FF',
         border: `2px solid ${accent}`,
-        borderRadius: 20,
-        padding: mode === 'word' ? '28px 48px' : '20px 24px',
-        textAlign: 'center',
-        marginBottom: 16,
-        position: 'relative',
-        minHeight: 100,
-        display: 'flex',
-        alignItems: 'center',
-        justifyContent: 'center',
+        borderRadius: 20, padding: mode === 'word' ? '28px 48px' : '20px 24px',
+        textAlign: 'center', marginBottom: 16, position: 'relative',
+        minHeight: 100, display: 'flex', alignItems: 'center', justifyContent: 'center',
       }}>
         <button onClick={prev} style={{ ...arrowBtn, left: 12 }}>‹</button>
         <div>
-          <span style={{
-            fontSize: wordFontSize,
-            fontWeight: 'bold',
-            color: '#1F2937',
-            letterSpacing: mode === 'word' ? 8 : 1,
-            lineHeight: 1.4,
-            display: 'block',
-          }}>
+          <span style={{ fontSize: wordFontSize, fontWeight: 'bold', color: '#1F2937', letterSpacing: mode === 'word' ? 8 : 1, lineHeight: 1.4, display: 'block' }}>
             {current}
           </span>
-          <p style={{ margin: '8px 0 0', fontSize: 12, color: '#9CA3AF' }}>
-            {index + 1} / {list.length}
-          </p>
+          <p style={{ margin: '8px 0 0', fontSize: 12, color: '#9CA3AF' }}>{index + 1} / {total}</p>
         </div>
         <button onClick={next} style={{ ...arrowBtn, right: 12, left: 'auto' }}>›</button>
       </div>
 
       {/* 캔버스 */}
-      <div style={{
-        border: `2px solid ${accent}`,
-        borderRadius: 16,
-        overflow: 'hidden',
-        marginBottom: 16,
-        touchAction: 'none',
-      }}>
+      <div style={{ border: `2px solid ${accent}`, borderRadius: 16, overflow: 'hidden', marginBottom: 16, touchAction: 'none' }}>
         <canvas
           ref={canvasRef}
-          width={520}
-          height={canvasH}
+          width={520} height={canvasH}
           style={{ width: '100%', display: 'block', cursor: 'crosshair' }}
-          onMouseDown={startDraw}
-          onMouseMove={draw}
-          onMouseUp={endDraw}
-          onMouseLeave={endDraw}
-          onTouchStart={startDraw}
-          onTouchMove={draw}
-          onTouchEnd={endDraw}
+          onMouseDown={startDraw} onMouseMove={draw} onMouseUp={endDraw} onMouseLeave={endDraw}
+          onTouchStart={startDraw} onTouchMove={draw} onTouchEnd={endDraw}
         />
       </div>
 
@@ -248,28 +238,29 @@ export default function WritingPage() {
       <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
         <div style={{ display: 'flex', gap: 8 }}>
           {colors.map(c => (
-            <button
-              key={c}
-              onClick={() => setPenColor(c)}
-              style={{
-                width: 28, height: 28, borderRadius: '50%',
-                backgroundColor: c,
-                border: penColor === c ? '3px solid #374151' : '2px solid transparent',
-                cursor: 'pointer',
-              }}
-            />
+            <button key={c} onClick={() => setPenColor(c)} style={{
+              width: 28, height: 28, borderRadius: '50%', backgroundColor: c,
+              border: penColor === c ? '3px solid #374151' : '2px solid transparent', cursor: 'pointer',
+            }} />
           ))}
         </div>
-        <button
-          onClick={initCanvas}
-          style={{
-            padding: '8px 20px', borderRadius: 10,
-            backgroundColor: '#F3F4F6', border: '1px solid #D1D5DB',
-            fontSize: 13, fontWeight: 'bold', color: '#374151', cursor: 'pointer',
-          }}
-        >
-          🗑️ 지우기
-        </button>
+        <div style={{ display: 'flex', gap: 8 }}>
+          <button onClick={initCanvas} style={{
+            padding: '8px 16px', borderRadius: 10, backgroundColor: '#F3F4F6',
+            border: '1px solid #D1D5DB', fontSize: 13, fontWeight: 'bold', color: '#374151', cursor: 'pointer',
+          }}>
+            🗑️ 지우기
+          </button>
+          <button onClick={saveSession} disabled={isSaved || isSaving || visited.size === 0} style={{
+            padding: '8px 16px', borderRadius: 10, fontSize: 13, fontWeight: 'bold', cursor: 'pointer',
+            border: 'none',
+            backgroundColor: isSaved ? '#ECFDF5' : '#14B8A6',
+            color: isSaved ? '#059669' : '#fff',
+            opacity: visited.size === 0 ? 0.5 : 1,
+          }}>
+            {isSaved ? `✅ 저장완료 (+${earnedScore}P)` : isSaving ? '저장 중...' : `📂 저장 (+${earnedScore}P)`}
+          </button>
+        </div>
       </div>
     </div>
   );
@@ -283,15 +274,9 @@ const arrowBtn: React.CSSProperties = {
 
 function selectCard(border: string, bg: string): React.CSSProperties {
   return {
-    flex: 1,
-    maxWidth: 200,
-    padding: '32px 20px',
-    borderRadius: 20,
-    border: `2px solid ${border}`,
-    backgroundColor: bg,
-    cursor: 'pointer',
-    textAlign: 'center' as const,
-    transition: 'transform 0.15s, box-shadow 0.15s',
+    flex: 1, maxWidth: 200, padding: '32px 20px', borderRadius: 20,
+    border: `2px solid ${border}`, backgroundColor: bg, cursor: 'pointer',
+    textAlign: 'center' as const, transition: 'transform 0.15s, box-shadow 0.15s',
     boxShadow: '0 2px 8px rgba(0,0,0,0.06)',
   };
 }

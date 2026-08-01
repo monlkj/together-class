@@ -36,8 +36,8 @@ export const Sidebar: React.FC = () => {
   };
 
   const navItems = [
-    { label: '홈 (Dashboard)',       href: '/',          icon: '🏠' },
-    { label: '교과서 OCR 번역',      href: '/translate', icon: '📸' },
+    { label: '홈',                    href: '/',          icon: '🏠' },
+    { label: '번역기',                href: '/translate', icon: '🌐' },
     { label: '실시간 음성 통역',     href: '/interpret', icon: '🎙️' },
     { label: 'AI 토론 친구',         href: '/debate',    icon: '💬' },
     { label: '가정통신문 번역',      href: '/notice',    icon: '📄' },
@@ -53,13 +53,15 @@ export const Sidebar: React.FC = () => {
 
   return (
     <aside style={styles.sidebar}>
-      <div style={styles.brand}>
-        <span style={styles.logoIcon}>🤖</span>
-        <div>
-          <h2 style={styles.brandName}>다함께 교실</h2>
-          <p style={styles.brandTag}>Dahamkke Classroom Web</p>
+      <Link href="/" style={{ textDecoration: 'none' }}>
+        <div style={styles.brand}>
+          <img
+            src="/logo.png"
+            alt="다함께 교실"
+            style={{ width: '100%', maxWidth: 200, height: 'auto', display: 'block', margin: '0 auto', cursor: 'pointer' }}
+          />
         </div>
-      </div>
+      </Link>
 
       <nav style={styles.nav}>
         {navItems.map((item) => {
@@ -115,7 +117,7 @@ const styles: Record<string, React.CSSProperties> = {
   logoIcon: { fontSize: '32px' },
   brandName: { margin: 0, fontSize: '18px', fontWeight: 'bold', color: '#14B8A6' },
   brandTag: { margin: 0, fontSize: '11px', color: '#6B7280' },
-  nav: { display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, overflowY: 'auto' as const },
+  nav: { display: 'flex', flexDirection: 'column', gap: '2px', flex: 1, overflowY: 'auto' as const, minHeight: 0 },
   navLink: {
     display: 'flex',
     alignItems: 'center',
@@ -147,6 +149,8 @@ const styles: Record<string, React.CSSProperties> = {
     background: 'none',
     border: 'none',
     cursor: 'pointer',
-    padding: 0,
+    padding: '6px 0',
+    width: '100%',
+    textAlign: 'left' as const,
   },
 };

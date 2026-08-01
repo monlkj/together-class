@@ -27,7 +27,7 @@ export default function LoginPage() {
     <div style={styles.container}>
       <div style={styles.card}>
         <div style={styles.leftPanel}>
-          <span style={{ fontSize: '64px' }}>🤖</span>
+          <span style={{ fontSize: '72px' }}>🤖</span>
           <h1 style={{ margin: '16px 0 8px 0', fontSize: '28px', color: '#FFF' }}>다함께 교실</h1>
           <p style={{ color: '#CCFBF1', textAlign: 'center', fontSize: '14px', lineHeight: '1.6' }}>
             학습장벽 없는 다문화·이주배경 학생을 위한<br />온디바이스/클라우드 AI 지능형 학습 시스템
@@ -59,6 +59,7 @@ export default function LoginPage() {
               type="password"
               value={password}
               onChange={(e) => setPassword(e.target.value)}
+              onKeyDown={(e) => e.key === 'Enter' && handleLogin()}
               placeholder="비밀번호 입력"
               style={styles.input}
             />

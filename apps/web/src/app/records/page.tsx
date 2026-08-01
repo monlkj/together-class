@@ -251,7 +251,7 @@ interface LearningRecord {
 }
 
 const TYPE_META: Record<string, { icon: string; color: string; bg: string; label: string }> = {
-  translate: { icon: '📸', color: '#14B8A6', bg: '#F0FDFA', label: 'OCR 번역' },
+  translate: { icon: '🌐', color: '#14B8A6', bg: '#F0FDFA', label: '번역기' },
   interpret: { icon: '🎙️', color: '#3B82F6', bg: '#EFF6FF', label: '음성 통역' },
   debate:    { icon: '💬', color: '#F59E0B', bg: '#FFFBEB', label: 'AI 토론' },
   notice:    { icon: '📄', color: '#EC4899', bg: '#FDF2F8', label: '가정통신문' },
@@ -318,6 +318,15 @@ export default function RecordsPage() {
   const [isSaved, setIsSaved] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const inputRef = useRef<HTMLInputElement>(null);
+  const [menuOpenId, setMenuOpenId] = useState<string | null>(null);
+
+  const deleteRecord = async (id: string) => {
+    if (!confirm('이 기록을 삭제할까요?')) return;
+    const { error } = await supabase.from('learning_records').delete().eq('id', id);
+    if (error) { alert(`삭제 실패: ${error.message}`); return; }
+    setMenuOpenId(null);
+    setRecords(prev => prev.filter(r => r.id !== id));
+  };
 
   const startQuiz = () => {
     const pool = diffFilter === 'all' ? QUIZ : QUIZ.filter(q => q.difficulty === diffFilter);
@@ -333,23 +342,26 @@ export default function RecordsPage() {
     setQuizStep('quiz');
   };
 
+  const correctCount = answers.filter(Boolean).length;
+  const wrongCount = answers.filter(v => !v).length;
+  const quizPoints = Math.max(0, correctCount * 5 - wrongCount * 2);
+
   const saveQuizResult = async () => {
     if (isSaved || isSaving) return;
     setIsSaving(true);
     try {
       const { data: { user } } = await supabase.auth.getUser();
       if (!user) return;
-      const correctCount = answers.filter(Boolean).length;
       const wrongLines = questions
         .map((q, i) => !answers[i]
           ? `❌ ${q.q}\n   정답: ${q.type === 'choice' ? q.options![q.answer as number] : q.answer}`
           : null)
         .filter(Boolean)
         .join('\n\n');
-      const content = `[복습 퀴즈] ${correctCount}/${questions.length}문제 정답 (${score}점)\n난이도: ${diffFilter === 'all' ? '전체' : diffFilter}\n\n${wrongLines || '✅ 모두 정답!'}`;
+      const content = `[복습 퀴즈] ${correctCount}/${questions.length}문제 정답 (+${correctCount * 5}P, -${wrongCount * 2}P = ${quizPoints}P)\n난이도: ${diffFilter === 'all' ? '전체' : diffFilter}\n\n${wrongLines || '✅ 모두 정답!'}`;
       const { error: insertError } = await supabase
         .from('learning_records')
-        .insert({ user_id: user.id, type: 'quiz', content, language: 'ko' });
+        .insert({ user_id: user.id, type: 'quiz', content, language: 'ko', score: quizPoints });
       if (insertError) {
         console.error('quiz save error:', insertError);
         alert(`저장 실패: ${insertError.message}`);
@@ -394,6 +406,7 @@ export default function RecordsPage() {
   const score = questions.length > 0
     ? Math.round((answers.filter(Boolean).length / questions.length) * 100)
     : 0;
+
   const grade = getGrade(score);
   const q = questions[current];
 
@@ -441,7 +454,7 @@ export default function RecordsPage() {
             <div style={s.empty}>
               <div style={{ fontSize: '48px', marginBottom: '12px' }}>📭</div>
               <p style={s.emptyTitle}>아직 저장된 학습 기록이 없어요</p>
-              <p style={s.emptyText}>교과서 OCR 번역, AI 토론, 받아쓰기 등을 이용하면<br/>학습 기록이 여기에 쌓입니다.</p>
+              <p style={s.emptyText}>번역기, AI 토론, 받아쓰기 등을 이용하면<br/>학습 기록이 여기에 쌓입니다.</p>
             </div>
           ) : (() => {
             const filtered = typeFilter === 'all' ? records : records.filter(r => r.type === typeFilter);
@@ -457,15 +470,37 @@ export default function RecordsPage() {
                   const meta = TYPE_META[r.type] ?? TYPE_META['default'];
                   const isOpen = expandedId === r.id;
                   return (
-                    <div key={r.id} style={{ ...s.recordCard, backgroundColor: meta.bg, border: `1.5px solid ${meta.color}40` }}>
+                    <div key={r.id} style={{ ...s.recordCard, backgroundColor: meta.bg, border: `1.5px solid ${meta.color}40`, position: 'relative' }}>
                       <div style={s.recordHeader} onClick={() => setExpandedId(isOpen ? null : r.id)}>
                         <span style={{ fontSize: '20px' }}>{meta.icon}</span>
                         <div style={{ flex: 1 }}>
                           <div style={{ fontSize: '13px', fontWeight: 'bold', color: meta.color }}>{meta.label}</div>
                           <div style={{ fontSize: '12px', color: '#6B7280' }}>{r.language} · {new Date(r.created_at).toLocaleDateString('ko-KR')}</div>
                         </div>
-                        <span style={{ fontSize: '12px', color: '#9CA3AF' }}>{isOpen ? '▲' : '▼'}</span>
+                        <span style={{ fontSize: '12px', color: '#9CA3AF', marginRight: 4 }}>{isOpen ? '▲' : '▼'}</span>
+                        <button
+                          onClick={e => { e.stopPropagation(); setMenuOpenId(menuOpenId === r.id ? null : r.id); }}
+                          style={{ background: 'none', border: 'none', cursor: 'pointer', fontSize: 20, color: '#9CA3AF', padding: '0 4px', lineHeight: 1, flexShrink: 0 }}
+                          title="더 보기"
+                        >⋮</button>
                       </div>
+                      {menuOpenId === r.id && (
+                        <div style={{
+                          position: 'absolute', top: 46, right: 8,
+                          backgroundColor: '#FFFFFF', border: '1px solid #E5E7EB',
+                          borderRadius: 10, boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+                          zIndex: 200, minWidth: 120,
+                        }}>
+                          <button
+                            onClick={() => deleteRecord(r.id)}
+                            style={{
+                              width: '100%', padding: '10px 16px', textAlign: 'left' as const,
+                              background: 'none', border: 'none', cursor: 'pointer',
+                              fontSize: 13, color: '#EF4444', fontWeight: 'bold', borderRadius: 10,
+                            }}
+                          >🗑️ 삭제</button>
+                        </div>
+                      )}
                       {isOpen && (
                         <div style={s.recordBody}>
                           <p style={{ margin: 0, fontSize: '13px', color: '#374151', lineHeight: '1.7', whiteSpace: 'pre-wrap' }}>{r.content}</p>
@@ -516,13 +551,33 @@ export default function RecordsPage() {
           {/* 퀴즈 진행 */}
           {quizStep === 'quiz' && q && (
             <div style={s.card}>
-              {/* 진행률 바 */}
-              <div style={{ display: 'flex', alignItems: 'center', gap: '12px', marginBottom: '20px', width: '100%' }}>
-                <span style={s.progressLabel}>{current + 1} / {questions.length}</span>
-                <div style={s.progressBg}>
-                  <div style={{ ...s.progressFill, width: `${((current + 1) / questions.length) * 100}%` }} />
+              {/* 스테퍼 진행 표시 */}
+              <div style={{ width: '100%', marginBottom: '20px' }}>
+                <div style={{ fontSize: 11, color: '#9CA3AF', textAlign: 'right' as const, marginBottom: 8 }}>
+                  {current + 1} / {questions.length}
                 </div>
-                <span style={s.progressLabel}>{Math.round(((current + 1) / questions.length) * 100)}%</span>
+                <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+                  {questions.map((_, i) => {
+                    const done = i < current;
+                    const cur = i === current;
+                    const correct = answers[i];
+                    return (
+                      <div key={i} style={{
+                        width: 30, height: 30, borderRadius: '50%',
+                        display: 'flex', alignItems: 'center', justifyContent: 'center',
+                        fontSize: 11, fontWeight: 'bold', flexShrink: 0,
+                        backgroundColor: done
+                          ? (correct ? '#14B8A6' : '#EF4444')
+                          : cur ? '#6D28D9' : '#E5E7EB',
+                        color: (done || cur) ? '#fff' : '#9CA3AF',
+                        boxShadow: cur ? '0 0 0 3px #DDD6FE' : 'none',
+                        transition: 'all 0.2s',
+                      }}>
+                        {done ? (correct ? '✓' : '✗') : i + 1}
+                      </div>
+                    );
+                  })}
+                </div>
               </div>
 
               {/* 메타 뱃지 */}
@@ -624,9 +679,14 @@ export default function RecordsPage() {
                 {grade.label}
               </div>
 
-              <p style={{ fontSize: '14px', color: '#6B7280', margin: '0 0 24px 0' }}>
-                {questions.length}문제 중 <strong style={{ color: '#1F2937' }}>{answers.filter(Boolean).length}문제</strong> 정답
+              <p style={{ fontSize: '14px', color: '#6B7280', margin: '0 0 8px 0' }}>
+                {questions.length}문제 중 <strong style={{ color: '#1F2937' }}>{correctCount}문제</strong> 정답
               </p>
+              <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' as const, justifyContent: 'center' }}>
+                <span style={{ background: '#ECFDF5', color: '#059669', padding: '4px 12px', borderRadius: 20, fontSize: 13, fontWeight: 'bold' }}>✅ +{correctCount * 5}P</span>
+                <span style={{ background: '#FEF2F2', color: '#DC2626', padding: '4px 12px', borderRadius: 20, fontSize: 13, fontWeight: 'bold' }}>❌ -{wrongCount * 2}P</span>
+                <span style={{ background: '#FEF3C7', color: '#92400E', padding: '4px 12px', borderRadius: 20, fontSize: 13, fontWeight: 'bold' }}>⭐ 최종 {quizPoints}P</span>
+              </div>
 
               {/* 문항별 정오표 */}
               <div style={{ display: 'flex', flexWrap: 'wrap', gap: '8px', justifyContent: 'center', width: '100%', marginBottom: '20px' }}>
@@ -694,7 +754,7 @@ export default function RecordsPage() {
                     color: isSaved ? '#059669' : '#FFFFFF',
                     opacity: isSaving ? 0.7 : 1,
                   }}>
-                  {isSaved ? '✅ 저장 완료' : isSaving ? '저장 중...' : '📂 학습기록 저장'}
+                  {isSaved ? `✅ 저장완료 (+${quizPoints}P)` : isSaving ? '저장 중...' : `📂 저장 (+${quizPoints}P)`}
                 </button>
               </div>
             </div>

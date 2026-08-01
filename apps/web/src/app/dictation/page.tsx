@@ -1,18 +1,86 @@
 'use client';
 
 import React, { useState, useRef, useEffect, useCallback } from 'react';
+import { supabase } from '../../lib/supabase';
 
-const WORDS = [
+const WORD_POOL = [
   '사랑', '학교', '친구', '하늘', '바람',
   '나무', '공부', '행복', '가족', '선생님',
   '도서관', '운동장', '김치찌개', '태극기', '무궁화',
   '이순신', '세종대왕', '흥부전', '심청전', '훈민정음',
+  '거북선', '유관순', '독립운동', '광복절', '한글날',
+  '봄바람', '눈사람', '달팽이', '무지개', '꽃봉오리',
 ];
+
+const SENTENCE_POOL = [
+  '나는 학교에 갑니다.',
+  '오늘은 날씨가 맑습니다.',
+  '이순신 장군은 거북선을 만들었습니다.',
+  '세종대왕은 훈민정음을 창제하였습니다.',
+  '우리나라 꽃은 무궁화입니다.',
+  '친구와 사이좋게 지냅니다.',
+  '봄에는 꽃이 피고 새가 울어요.',
+  '열심히 공부하면 꿈을 이룰 수 있습니다.',
+  '흥부와 놀부는 형제입니다.',
+  '심청이는 아버지를 위해 바다에 뛰어들었습니다.',
+  '홍길동은 가난한 사람을 도왔습니다.',
+  '유관순은 나라의 독립을 위해 싸웠습니다.',
+  '태극기는 우리나라의 상징입니다.',
+  '한글은 세종대왕이 만든 글자입니다.',
+  '오늘도 최선을 다하겠습니다.',
+  '가족과 함께하는 시간이 소중합니다.',
+  '책을 읽으면 지혜가 생깁니다.',
+  '운동을 하면 건강해집니다.',
+  '서로 도와가며 살아갑니다.',
+  '우리 반 친구들은 모두 소중합니다.',
+];
+
+const SESSION_SIZE = 10;
+
+const SCORE_RULES = [
+  { min: 100, max: 100, points: 5, label: '완벽',   emoji: '🎉', color: '#059669', bg: '#ECFDF5' },
+  { min: 80,  max: 99,  points: 4, label: '우수',   emoji: '👍', color: '#0D9488', bg: '#F0FDFA' },
+  { min: 60,  max: 79,  points: 3, label: '양호',   emoji: '😊', color: '#2563EB', bg: '#EFF6FF' },
+  { min: 40,  max: 59,  points: 2, label: '보통',   emoji: '🤔', color: '#D97706', bg: '#FFFBEB' },
+  { min: 20,  max: 39,  points: 1, label: '노력',   emoji: '😅', color: '#EA580C', bg: '#FFF7ED' },
+  { min: 0,   max: 19,  points: 0, label: '재도전', emoji: '💪', color: '#DC2626', bg: '#FEF2F2' },
+];
+
+function shuffle<T>(arr: T[]): T[] {
+  const a = [...arr];
+  for (let i = a.length - 1; i > 0; i--) {
+    const j = Math.floor(Math.random() * (i + 1));
+    [a[i], a[j]] = [a[j], a[i]];
+  }
+  return a;
+}
 
 const PEN_COLORS = ['#111111', '#EAB308', '#3B82F6', '#EF4444'];
 
+// 한글 자모 분리 (더 세밀한 비교를 위해)
+function decomposeKorean(str: string): string {
+  const CHO  = ['ㄱ','ㄲ','ㄴ','ㄷ','ㄸ','ㄹ','ㅁ','ㅂ','ㅃ','ㅅ','ㅆ','ㅇ','ㅈ','ㅉ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+  const JUNG = ['ㅏ','ㅐ','ㅑ','ㅒ','ㅓ','ㅔ','ㅕ','ㅖ','ㅗ','ㅘ','ㅙ','ㅚ','ㅛ','ㅜ','ㅝ','ㅞ','ㅟ','ㅠ','ㅡ','ㅢ','ㅣ'];
+  const JONG = ['','ㄱ','ㄲ','ㄳ','ㄴ','ㄵ','ㄶ','ㄷ','ㄹ','ㄺ','ㄻ','ㄼ','ㄽ','ㄾ','ㄿ','ㅀ','ㅁ','ㅂ','ㅄ','ㅅ','ㅆ','ㅇ','ㅈ','ㅊ','ㅋ','ㅌ','ㅍ','ㅎ'];
+  let result = '';
+  for (const ch of str) {
+    const code = ch.charCodeAt(0);
+    if (code >= 0xAC00 && code <= 0xD7A3) {
+      const offset = code - 0xAC00;
+      const cho = Math.floor(offset / (21 * 28));
+      const jung = Math.floor((offset % (21 * 28)) / 28);
+      const jong = offset % 28;
+      result += CHO[cho] + JUNG[jung] + (jong > 0 ? JONG[jong] : '');
+    } else {
+      result += ch;
+    }
+  }
+  return result;
+}
+
 function getSimilarity(input: string, answer: string): number {
-  const a = input.trim(), b = answer.trim();
+  const a = decomposeKorean(input.trim());
+  const b = decomposeKorean(answer.trim());
   if (a === b) return 100;
   if (!a.length || !b.length) return 0;
   const m = a.length, n = b.length;
@@ -27,18 +95,30 @@ function getSimilarity(input: string, answer: string): number {
   return Math.max(0, Math.round((1 - dp[m][n] / Math.max(m, n)) * 100));
 }
 
-function getGrade(pct: number) {
-  if (pct >= 90) return { emoji: '🎉', label: '완벽해요!',          color: '#059669', bg: '#ECFDF5' };
-  if (pct >= 65) return { emoji: '👍', label: '아주 잘했어요!',     color: '#0D9488', bg: '#F0FDFA' };
-  if (pct >= 40) return { emoji: '😊', label: '잘했어요!',           color: '#2563EB', bg: '#EFF6FF' };
-  if (pct >= 20) return { emoji: '🤔', label: '조금 더 연습해요',   color: '#D97706', bg: '#FFFBEB' };
-  return          { emoji: '💪', label: '다시 도전해봐요!',          color: '#DC2626', bg: '#FEF2F2' };
+// 유사도(0~100)를 1~5점으로 변환 (제출하면 최소 1점)
+function calcPoints(pct: number): number {
+  return Math.max(1, Math.round(pct / 20));
 }
 
-type Mode = 'select' | 'typing' | 'writing';
+function getGrade(pct: number) {
+  const points = calcPoints(pct);
+  if (pct === 100) return { emoji: '🎉', label: '완벽해요!',         color: '#059669', bg: '#ECFDF5', points };
+  if (pct >= 80)   return { emoji: '👍', label: '아주 잘했어요!',    color: '#0D9488', bg: '#F0FDFA', points };
+  if (pct >= 60)   return { emoji: '😊', label: '잘했어요!',          color: '#2563EB', bg: '#EFF6FF', points };
+  if (pct >= 40)   return { emoji: '🤔', label: '조금 더 연습해요',  color: '#D97706', bg: '#FFFBEB', points };
+  if (pct >= 20)   return { emoji: '😅', label: '한 번 더 해봐요!',  color: '#EA580C', bg: '#FFF7ED', points };
+  return             { emoji: '💪', label: '다시 도전해봐요!',        color: '#DC2626', bg: '#FEF2F2', points };
+}
+
+// 세션 최대 점수 계산용
+const MAX_POINTS_PER_WORD = 5;
+
+type Mode = 'select' | 'content' | 'typing' | 'writing';
 
 export default function DictationPage() {
   const [mode, setMode] = useState<Mode>('select');
+  const [contentType, setContentType] = useState<'word' | 'sentence'>('word');
+  const [words, setWords] = useState<string[]>(WORD_POOL.slice(0, SESSION_SIZE));
   const [wordIdx, setWordIdx] = useState(0);
   const [isPlaying, setIsPlaying] = useState(false);
 
@@ -46,16 +126,26 @@ export default function DictationPage() {
   const [typingInput, setTypingInput] = useState('');
   const [typingResult, setTypingResult] = useState<{ pct: number; correct: boolean } | null>(null);
 
+  // session score
+  const [sessionScores, setSessionScores] = useState<number[]>([]);
+  const [sessionDone, setSessionDone] = useState(false);
+  const [isSaved, setIsSaved] = useState(false);
+  const [isSaving, setIsSaving] = useState(false);
+
   // writing mode
   const [penColor, setPenColor] = useState('#111111');
   const [isDrawing, setIsDrawing] = useState(false);
   const [showGuide, setShowGuide] = useState(false);
   const [selfResult, setSelfResult] = useState<'good' | 'retry' | null>(null);
+  const [writingInput, setWritingInput] = useState('');
+  const [writingResult, setWritingResult] = useState<{ pct: number } | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const typingInputRef = useRef<HTMLInputElement>(null);
 
-  const currentWord = WORDS[wordIdx];
+  const currentWord = words[wordIdx];
+  const totalScore = sessionScores.reduce((a, b) => a + b, 0);
+  const maxScore = words.length * MAX_POINTS_PER_WORD;
 
   // ─── TTS ────────────────────────────────────────────────────────
   const speak = useCallback(() => {
@@ -174,12 +264,18 @@ export default function DictationPage() {
   const checkTyping = () => {
     if (!typingInput.trim()) return;
     const pct = getSimilarity(typingInput, currentWord);
+    const grade = getGrade(pct);
     setTypingResult({ pct, correct: pct >= 80 });
+    setSessionScores(prev => [...prev, grade.points]);
   };
 
   // ─── Next word ───────────────────────────────────────────────────
   const nextWord = () => {
-    const next = (wordIdx + 1) % WORDS.length;
+    const next = wordIdx + 1;
+    if (next >= words.length) {
+      setSessionDone(true);
+      return;
+    }
     setWordIdx(next);
     setTypingInput('');
     setTypingResult(null);
@@ -187,32 +283,166 @@ export default function DictationPage() {
     setTimeout(() => typingInputRef.current?.focus(), 100);
   };
 
+  // ─── Save session ────────────────────────────────────────────────
+  const saveSession = async () => {
+    if (isSaved || isSaving) return;
+    setIsSaving(true);
+    try {
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const details = words.map((w, i) => {
+        const pts = sessionScores[i] ?? 0;
+        return `${w}: ${pts}점`;
+      }).join(', ');
+      const content = `[받아쓰기] 총점 ${totalScore}/${maxScore}점 (${words.length}단어)\n${details}`;
+      const { error } = await supabase.from('learning_records')
+        .insert({ user_id: user.id, type: 'dictation', content, language: 'ko', score: totalScore });
+      if (error) { alert(`저장 실패: ${error.message}`); return; }
+      setIsSaved(true);
+    } finally {
+      setIsSaving(false);
+    }
+  };
+
+  // ─── Reset session ───────────────────────────────────────────────
+  const resetSession = () => {
+    setWordIdx(0);
+    setTypingInput('');
+    setTypingResult(null);
+    setSessionScores([]);
+    setSessionDone(false);
+    setIsSaved(false);
+    setSelfResult(null);
+    setWritingInput('');
+    setWritingResult(null);
+  };
+
+  // ─── 손글씨 채점 ────────────────────────────────────────────────
+  const checkWriting = () => {
+    if (!writingInput.trim()) return;
+    const pct = getSimilarity(writingInput, currentWord);
+    const grade = getGrade(pct);
+    setWritingResult({ pct });
+    setSessionScores(prev => [...prev, grade.points]);
+  };
+
   // ════════════════════════════════════════════════════════════════
   // RENDER – Mode select
   // ════════════════════════════════════════════════════════════════
+  // ─── 1단계: 단어 / 문장 선택 ────────────────────────────────────
   if (mode === 'select') {
     return (
       <div style={s.wrap}>
         <div style={s.selectCard}>
           <div style={{ fontSize: '56px', marginBottom: '12px' }}>✍️</div>
           <h1 style={s.title}>받아쓰기 연습</h1>
-          <p style={s.subtitle}>음성을 듣고 단어를 써보세요. 어떻게 연습할까요?</p>
-
+          <p style={s.subtitle}>무엇을 받아쓸까요? (세션당 {SESSION_SIZE}문제)</p>
           <div style={s.modeRow}>
-            {/* 타자 모드 */}
-            <button style={s.modeBtn} onClick={() => setMode('typing')}>
+            <button style={s.modeBtn} onClick={() => { setContentType('word'); setMode('content'); }}>
+              <span style={s.modeBtnIcon}>🔤</span>
+              <span style={s.modeBtnTitle}>단어</span>
+              <span style={s.modeBtnDesc}>30개 단어 중 {SESSION_SIZE}개 랜덤 출제</span>
+              <span style={s.modeBtnTag}>맞춤법 집중</span>
+            </button>
+            <button style={{ ...s.modeBtn, ...s.modeBtnGreen }} onClick={() => { setContentType('sentence'); setMode('content'); }}>
+              <span style={s.modeBtnIcon}>📝</span>
+              <span style={s.modeBtnTitle}>문장</span>
+              <span style={s.modeBtnDesc}>20개 문장 중 {SESSION_SIZE}개 랜덤 출제</span>
+              <span style={{ ...s.modeBtnTag, backgroundColor: '#D1FAE5', color: '#065F46' }}>듣기+쓰기</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ─── 2단계: 타자 / 손글씨 선택 ──────────────────────────────────
+  if (mode === 'content') {
+    const startSession = (m: 'typing' | 'writing') => {
+      const pool = contentType === 'word' ? WORD_POOL : SENTENCE_POOL;
+      setWords(shuffle(pool).slice(0, SESSION_SIZE));
+      setWordIdx(0);
+      setSessionScores([]);
+      setSessionDone(false);
+      setIsSaved(false);
+      setMode(m);
+    };
+    return (
+      <div style={s.wrap}>
+        <div style={s.selectCard}>
+          <button style={{ ...s.backBtn, alignSelf: 'flex-start', marginBottom: 16 }} onClick={() => setMode('select')}>← 돌아가기</button>
+          <div style={{ fontSize: '56px', marginBottom: '12px' }}>{contentType === 'word' ? '🔤' : '📝'}</div>
+          <h1 style={s.title}>{contentType === 'word' ? '단어' : '문장'} 받아쓰기</h1>
+          <p style={s.subtitle}>어떻게 연습할까요?</p>
+          <div style={s.modeRow}>
+            <button style={s.modeBtn} onClick={() => startSession('typing')}>
               <span style={s.modeBtnIcon}>⌨️</span>
               <span style={s.modeBtnTitle}>타자로 치기</span>
-              <span style={s.modeBtnDesc}>키보드로 단어를 입력해요</span>
+              <span style={s.modeBtnDesc}>키보드로 입력해요</span>
               <span style={s.modeBtnTag}>PC 추천</span>
             </button>
-
-            {/* 손글씨 모드 */}
-            <button style={{ ...s.modeBtn, ...s.modeBtnGreen }} onClick={() => setMode('writing')}>
+            <button style={{ ...s.modeBtn, ...s.modeBtnGreen }} onClick={() => startSession('writing')}>
               <span style={s.modeBtnIcon}>🖊️</span>
               <span style={s.modeBtnTitle}>손글씨로 쓰기</span>
-              <span style={s.modeBtnDesc}>화면에 직접 글씨를 써요</span>
-              <span style={{ ...s.modeBtnTag, backgroundColor: '#D1FAE5', color: '#065F46' }}>모바일·태블릿 추천</span>
+              <span style={s.modeBtnDesc}>화면에 직접 써요</span>
+              <span style={{ ...s.modeBtnTag, backgroundColor: '#D1FAE5', color: '#065F46' }}>모바일 추천</span>
+            </button>
+          </div>
+        </div>
+      </div>
+    );
+  }
+
+  // ════════════════════════════════════════════════════════════════
+  // RENDER – Session done (타자/손글씨 공통)
+  // ════════════════════════════════════════════════════════════════
+  if (sessionDone) {
+    const pct = maxScore > 0 ? Math.round((totalScore / maxScore) * 100) : 0;
+    const finalGrade = getGrade(pct);
+    return (
+      <div style={s.wrap}>
+        <div style={s.mainCard}>
+          <div style={{ fontSize: '56px' }}>{finalGrade.emoji}</div>
+          <h2 style={{ margin: 0, fontSize: '22px', fontWeight: 'bold', color: '#1F2937' }}>
+            받아쓰기 완료!
+          </h2>
+          <div style={{ fontSize: 36, fontWeight: 'bold', color: finalGrade.color }}>
+            {totalScore} <span style={{ fontSize: 16, color: '#9CA3AF' }}>/ {maxScore}점</span>
+          </div>
+          <div style={{ fontSize: 14, color: finalGrade.color, fontWeight: 'bold' }}>{finalGrade.label}</div>
+
+          {/* 점수 기준 */}
+          <div style={{ width: '100%', maxWidth: 400, backgroundColor: '#F9FAFB', borderRadius: 12, padding: '16px 20px', textAlign: 'left' as const }}>
+            <p style={{ margin: '0 0 10px', fontSize: 12, fontWeight: 'bold', color: '#6B7280' }}>📊 AI 점수 기준</p>
+            {SCORE_RULES.map(r => (
+              <div key={r.min} style={{ display: 'flex', justifyContent: 'space-between', fontSize: 12, color: r.color, marginBottom: 4 }}>
+                <span>{r.emoji} {r.label}</span>
+                <span>{r.min === 100 ? '100%' : `${r.min}~${r.max}%`} → +{r.points}점</span>
+              </div>
+            ))}
+          </div>
+
+          {/* 단어별 결과 */}
+          <div style={{ width: '100%', maxWidth: 400, display: 'flex', flexWrap: 'wrap' as const, gap: 6 }}>
+            {words.map((w, i) => {
+              const pts = sessionScores[i] ?? 0;
+              const g = SCORE_RULES.find(r => pts === r.points) ?? SCORE_RULES[4];
+              return (
+                <div key={i} style={{ padding: '4px 10px', borderRadius: 20, backgroundColor: g.bg, color: g.color, fontSize: 12, fontWeight: 'bold' }}>
+                  {w} {pts}점
+                </div>
+              );
+            })}
+          </div>
+
+          <div style={{ display: 'flex', gap: 12, flexWrap: 'wrap' as const, justifyContent: 'center' }}>
+            <button onClick={saveSession} disabled={isSaved || isSaving}
+              style={{ ...s.checkBtn, backgroundColor: isSaved ? '#ECFDF5' : '#6D28D9', color: isSaved ? '#059669' : '#fff', minWidth: 160 }}>
+              {isSaved ? '✅ 저장 완료' : isSaving ? '저장 중...' : '📂 학습기록 저장'}
+            </button>
+            <button onClick={resetSession}
+              style={{ ...s.checkBtn, backgroundColor: '#14B8A6', minWidth: 120 }}>
+              🔄 다시 하기
             </button>
           </div>
         </div>
@@ -230,11 +460,43 @@ export default function DictationPage() {
         <div style={s.header}>
           <button style={s.backBtn} onClick={() => setMode('select')}>← 모드 선택</button>
           <span style={s.headerBadge}>⌨️ 타자 모드</span>
+          {/* 누적 점수 */}
+          <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 8 }}>
+            <span style={{ fontSize: 13, color: '#6B7280' }}>누적 점수</span>
+            <span style={{ fontSize: 18, fontWeight: 'bold', color: '#6D28D9' }}>{totalScore}점</span>
+          </div>
         </div>
 
         <div style={s.mainCard}>
-          {/* 단어 번호 */}
-          <div style={s.wordCount}>단어 {wordIdx + 1} / {WORDS.length}</div>
+          {/* 스테퍼 진행 표시 */}
+          <div style={{ width: '100%', maxWidth: 480 }}>
+            <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: 11, color: '#9CA3AF', marginBottom: 10 }}>
+              <span>단어당 최대 5점</span>
+              <span>{wordIdx + 1} / {words.length}</span>
+            </div>
+            <div style={{ display: 'flex', gap: 4, justifyContent: 'center' }}>
+              {words.map((_, i) => {
+                const done = i < wordIdx;
+                const cur = i === wordIdx;
+                const pts = sessionScores[i] ?? 0;
+                return (
+                  <div key={i} style={{
+                    width: 30, height: 30, borderRadius: '50%',
+                    display: 'flex', alignItems: 'center', justifyContent: 'center',
+                    fontSize: 11, fontWeight: 'bold', flexShrink: 0,
+                    backgroundColor: done
+                      ? (pts >= 8 ? '#14B8A6' : pts >= 4 ? '#F59E0B' : '#EF4444')
+                      : cur ? '#6D28D9' : '#E5E7EB',
+                    color: (done || cur) ? '#fff' : '#9CA3AF',
+                    boxShadow: cur ? '0 0 0 3px #DDD6FE' : 'none',
+                    transition: 'all 0.2s',
+                  }}>
+                    {done ? '✓' : i + 1}
+                  </div>
+                );
+              })}
+            </div>
+          </div>
 
           {/* TTS 버튼 */}
           <button onClick={speak} style={{ ...s.ttsBtn, ...(isPlaying ? s.ttsBtnActive : {}) }}>
@@ -256,7 +518,9 @@ export default function DictationPage() {
             />
             {!typingResult
               ? <button onClick={checkTyping} style={s.checkBtn} disabled={!typingInput.trim()}>확인</button>
-              : <button onClick={nextWord} style={{ ...s.checkBtn, backgroundColor: '#14B8A6' }}>다음 →</button>
+              : <button onClick={nextWord} style={{ ...s.checkBtn, backgroundColor: '#14B8A6' }}>
+                  {wordIdx + 1 >= words.length ? '결과 보기 →' : '다음 →'}
+                </button>
             }
           </div>
 
@@ -266,7 +530,8 @@ export default function DictationPage() {
               <div style={s.gradeEmoji}>{grade.emoji}</div>
               <div style={{ ...s.gradeLabel, color: grade.color }}>{grade.label}</div>
               <div style={s.scoreRow}>
-                <span style={{ ...s.scorePct, color: grade.color }}>{typingResult.pct}점</span>
+                <span style={{ ...s.scorePct, color: grade.color }}>{typingResult.pct}%</span>
+                <span style={{ fontSize: 20, color: grade.color, fontWeight: 'bold', marginLeft: 8 }}>+{grade.points}점</span>
               </div>
               <div style={s.answerReveal}>
                 정답: <strong style={{ color: grade.color }}>{currentWord}</strong>
@@ -274,6 +539,17 @@ export default function DictationPage() {
                   <> &nbsp;|&nbsp; 내 답: <span style={{ color: '#6B7280' }}>{typingInput}</span></>
                 )}
               </div>
+            </div>
+          )}
+
+          {/* 점수 기준 안내 */}
+          {!typingResult && (
+            <div style={{ width: '100%', maxWidth: 480, display: 'flex', gap: 6, flexWrap: 'wrap' as const, justifyContent: 'center' }}>
+              {SCORE_RULES.map(r => (
+                <span key={r.min} style={{ fontSize: 11, padding: '2px 8px', borderRadius: 20, backgroundColor: r.bg, color: r.color, fontWeight: 'bold' }}>
+                  {r.min === 100 ? '100%' : `${r.min}%↑`} +{r.points}점
+                </span>
+              ))}
             </div>
           )}
         </div>
@@ -293,7 +569,27 @@ export default function DictationPage() {
 
       {/* TTS */}
       <div style={s.mainCard}>
-        <div style={s.wordCount}>단어 {wordIdx + 1} / {WORDS.length}</div>
+        <div style={{ display: 'flex', gap: 4, justifyContent: 'center', marginBottom: 4 }}>
+          {words.map((_, i) => {
+            const done = i < wordIdx;
+            const cur = i === wordIdx;
+            const pts = sessionScores[i] ?? 0;
+            return (
+              <div key={i} style={{
+                width: 28, height: 28, borderRadius: '50%',
+                display: 'flex', alignItems: 'center', justifyContent: 'center',
+                fontSize: 10, fontWeight: 'bold', flexShrink: 0,
+                backgroundColor: done
+                  ? (pts >= 8 ? '#14B8A6' : pts >= 4 ? '#F59E0B' : '#EF4444')
+                  : cur ? '#6D28D9' : '#E5E7EB',
+                color: (done || cur) ? '#fff' : '#9CA3AF',
+                boxShadow: cur ? '0 0 0 3px #DDD6FE' : 'none',
+              }}>
+                {done ? '✓' : i + 1}
+              </div>
+            );
+          })}
+        </div>
         <button onClick={speak} style={{ ...s.ttsBtn, ...(isPlaying ? s.ttsBtnActive : {}) }}>
           {isPlaying ? '🔊 재생 중...' : '🔊 음성 듣기'}
         </button>
@@ -324,7 +620,6 @@ export default function DictationPage() {
                 }}
               />
             ))}
-            <button onClick={initCanvas} style={s.clearBtn}>🗑️ 지우기</button>
           </div>
 
           <canvas
@@ -339,44 +634,52 @@ export default function DictationPage() {
             onTouchEnd={onUp}
           />
 
-          {/* 가이드 + 스스로 평가 */}
+          {/* 가이드 버튼 */}
           <div style={s.actionRow}>
             {!showGuide && (
-              <button onClick={showGuideOverlay} style={s.guideBtn}>
-                👁️ 가이드 보기 (15% 투명도)
-              </button>
+              <button onClick={showGuideOverlay} style={s.guideBtn}>👁️ 가이드 보기</button>
             )}
-            {showGuide && (
-              <span style={s.guideNote}>💡 캔버스에 글자 가이드가 표시됐어요</span>
-            )}
+            {showGuide && <span style={s.guideNote}>💡 글자 가이드가 표시됐어요</span>}
+            <button onClick={() => { initCanvas(); setWritingInput(''); setWritingResult(null); setSessionScores(p => writingResult ? p.slice(0,-1) : p); }} style={s.clearBtn}>🗑️ 지우기</button>
           </div>
 
-          {/* 자기 평가 */}
-          {selfResult === null ? (
-            <div style={s.selfRow}>
-              <p style={s.selfLabel}>스스로 평가해보세요:</p>
-              <div style={s.selfBtns}>
-                <button onClick={() => setSelfResult('good')} style={s.selfGood}>
-                  ✅ 잘 썼어요
-                </button>
-                <button onClick={() => setSelfResult('retry')} style={s.selfRetry}>
-                  🔄 다시 써볼게요
-                </button>
-              </div>
-            </div>
-          ) : selfResult === 'retry' ? (
-            <div style={s.selfFeedback}>
-              <span style={{ color: '#D97706', fontWeight: 'bold' }}>🔄 다시 한번 써봐요!</span>
-              <button onClick={() => { initCanvas(); setSelfResult(null); }} style={s.retrySmall}>
-                캔버스 초기화
-              </button>
+          {/* 입력 + 채점 */}
+          {!writingResult ? (
+            <div style={s.inputRow}>
+              <input
+                type="text"
+                value={writingInput}
+                onChange={e => setWritingInput(e.target.value)}
+                onKeyDown={e => { if (e.key === 'Enter') checkWriting(); }}
+                placeholder="쓴 글자를 입력하세요..."
+                style={s.textInput}
+              />
+              <button onClick={checkWriting} disabled={!writingInput.trim()} style={s.checkBtn}>채점</button>
             </div>
           ) : (
-            <div style={{ ...s.selfFeedback, gap: '12px' }}>
-              <span style={{ color: '#059669', fontWeight: 'bold', fontSize: '16px' }}>🎉 잘 썼어요! 다음 단어로 가요.</span>
-              <button onClick={nextWord} style={{ ...s.checkBtn, backgroundColor: '#14B8A6', width: 'auto', padding: '10px 24px' }}>
-                다음 단어 →
-              </button>
+            <div style={{ ...s.resultCard, backgroundColor: getGrade(writingResult.pct).bg, width: '100%' }}>
+              <div style={s.gradeEmoji}>{getGrade(writingResult.pct).emoji}</div>
+              <div style={{ ...s.gradeLabel, color: getGrade(writingResult.pct).color }}>
+                {getGrade(writingResult.pct).label}
+              </div>
+              <div style={s.scoreRow}>
+                <span style={{ ...s.scorePct, color: getGrade(writingResult.pct).color }}>{writingResult.pct}%</span>
+                <span style={{ fontSize: 18, fontWeight: 'bold', color: getGrade(writingResult.pct).color, marginLeft: 8 }}>
+                  +{getGrade(writingResult.pct).points}점
+                </span>
+              </div>
+              <div style={s.answerReveal}>
+                내 답: <strong>{writingInput}</strong>
+                &nbsp;|&nbsp; 정답: <strong style={{ color: getGrade(writingResult.pct).color }}>{currentWord}</strong>
+              </div>
+              <div style={{ display: 'flex', gap: 10, marginTop: 8 }}>
+                <button onClick={() => { initCanvas(); setWritingInput(''); setWritingResult(null); setSessionScores(p => p.slice(0,-1)); }} style={s.retrySmall}>
+                  🔄 다시 쓰기
+                </button>
+                <button onClick={nextWord} style={{ ...s.checkBtn, backgroundColor: '#14B8A6', padding: '8px 20px' }}>
+                  {wordIdx + 1 >= words.length ? '결과 보기 →' : '다음 단어 →'}
+                </button>
+              </div>
             </div>
           )}
         </div>

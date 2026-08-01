@@ -2,7 +2,7 @@
   "name": "dahamkke-classroom",
   "version": "1.0.0",
   "private": true,
-  "description": "이주배경학생의 학습장벽 해소를 위한 온디바이스/클라우드 AI 기반 다함께교실 프로젝트",
+  "description": "Dahamkke Classroom - AI-based learning platform for multicultural students",
   "workspaces": [
     "apps/*",
     "packages/*"
@@ -16,5 +16,9 @@
   },
   "devDependencies": {
     "typescript": "^5.3.3"
+  },
+  "overrides": {
+    "react": "18.3.1",
+    "react-dom": "18.3.1"
   }
 }
