@@ -48,8 +48,8 @@ const SENTENCES = [
   '우리 반 친구들은 모두 소중합니다.',
 ];
 
-// 단어 1P, 문장 2P
-const PTS_PER_ITEM = { word: 1, sentence: 2 };
+// 단어/문장 모두 1P
+const PTS_PER_ITEM = { word: 1, sentence: 1 };
 
 type Mode = 'select' | 'word' | 'sentence';
 
@@ -67,8 +67,9 @@ export default function WritingPage() {
   const [index, setIndex] = useState(0);
   const [list, setList] = useState<string[]>([]);
   const [visited, setVisited] = useState<Set<number>>(new Set());
-  const [isSaved, setIsSaved] = useState(false);
+  const [savedIndices, setSavedIndices] = useState<Set<number>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
+  const [saveError, setSaveError] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -77,8 +78,8 @@ export default function WritingPage() {
 
   const current = list[index] ?? '';
   const canvasH = mode === 'sentence' ? 300 : 240;
-  const ptsPerItem = mode === 'word' ? PTS_PER_ITEM.word : PTS_PER_ITEM.sentence;
-  const earnedScore = visited.size * ptsPerItem;
+  const currentSaved = savedIndices.has(index);
+  const totalSavedP = savedIndices.size;
 
   const initCanvas = useCallback(() => {
     const canvas = canvasRef.current;
@@ -104,7 +105,6 @@ export default function WritingPage() {
   useEffect(() => {
     if (mode !== 'select') {
       initCanvas();
-      setVisited(prev => new Set(prev).add(index));
     }
   }, [index, mode, initCanvas]);
 
@@ -129,29 +129,36 @@ export default function WritingPage() {
     ctx.strokeStyle = penColor; ctx.lineWidth = mode === 'sentence' ? 3 : 4;
     ctx.lineCap = 'round'; ctx.lineJoin = 'round'; ctx.stroke();
     lastPos.current = pos;
+    setVisited(prev => new Set(prev).add(index));
   };
   const endDraw = () => { setIsDrawing(false); lastPos.current = null; };
 
   const total = list.length || 1;
-  const prev = () => { setIndex(i => { const n = (i - 1 + total) % total; setVisited(v => new Set(v).add(n)); return n; }); };
-  const next = () => { setIndex(i => { const n = (i + 1) % total; setVisited(v => new Set(v).add(n)); return n; }); };
+  const prev = () => setIndex(i => (i - 1 + total) % total);
+  const next = () => setIndex(i => (i + 1) % total);
 
-  const saveSession = async () => {
-    if (isSaved || isSaving || visited.size === 0) return;
+  const saveWord = async () => {
+    if (isSaving || currentSaved) return;
     setIsSaving(true);
+    setSaveError(null);
     try {
       const { data: { user } } = await supabase.auth.getUser();
-      if (!user) { alert('로그인이 필요합니다.'); return; }
+      if (!user) { setSaveError('로그인이 필요합니다.'); return; }
       const typeLabel = mode === 'word' ? '단어' : '문장';
-      const content = `[글씨 쓰기] ${typeLabel} ${visited.size}개 연습 · ${earnedScore}점`;
+      const content = `[글씨 쓰기] ${typeLabel} "${current}" 연습 +1P`;
       const { error } = await supabase.from('learning_records')
-        .insert({ user_id: user.id, type: 'writing', content, language: 'ko', score: earnedScore });
-      if (error) { alert(`저장 실패: ${error.message}`); return; }
-      setIsSaved(true);
+        .insert({ user_id: user.id, type: 'writing', content, language: 'ko', score: 1 });
+      if (error) {
+        setSaveError(`저장 실패: ${error.message}`);
+      } else {
+        setSavedIndices(prev => new Set(prev).add(index));
+      }
     } finally {
       setIsSaving(false);
     }
   };
+
+  const goBack = () => setMode('select');
 
   const colors = ['#1F2937', '#EF4444', '#3B82F6', '#10B981', '#8B5CF6'];
   const accent = mode === 'word' ? '#84CC16' : '#3B82F6';
@@ -165,7 +172,7 @@ export default function WritingPage() {
         <p style={{ fontSize: 14, color: '#6B7280', marginBottom: 48 }}>무엇을 연습할까요?</p>
         <div style={{ display: 'flex', gap: 20, justifyContent: 'center' }}>
           <button
-            onClick={() => { setList(shuffle(WORDS)); setIndex(0); setVisited(new Set([0])); setIsSaved(false); setMode('word'); }}
+            onClick={() => { setList(shuffle(WORDS)); setIndex(0); setVisited(new Set()); setSavedIndices(new Set()); setMode('word'); }}
             style={selectCard('#84CC16', '#F7FEE7')}
           >
             <div style={{ fontSize: 52, marginBottom: 12 }}>🔤</div>
@@ -173,12 +180,12 @@ export default function WritingPage() {
             <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>낱말 100개 · 단어당 1P</div>
           </button>
           <button
-            onClick={() => { setList(shuffle(SENTENCES)); setIndex(0); setVisited(new Set([0])); setIsSaved(false); setMode('sentence'); }}
+            onClick={() => { setList(shuffle(SENTENCES)); setIndex(0); setVisited(new Set()); setSavedIndices(new Set()); setMode('sentence'); }}
             style={selectCard('#3B82F6', '#EFF6FF')}
           >
             <div style={{ fontSize: 52, marginBottom: 12 }}>📝</div>
             <div style={{ fontSize: 20, fontWeight: 'bold', color: '#1E3A8A', marginBottom: 8 }}>문장</div>
-            <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>교과서 문장 20개 · 문장당 2P</div>
+            <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>교과서 문장 20개 · 문장당 1P</div>
           </button>
         </div>
       </div>
@@ -190,7 +197,7 @@ export default function WritingPage() {
       <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'space-between', marginBottom: 16 }}>
         <div style={{ display: 'flex', alignItems: 'center', gap: 12 }}>
           <button
-            onClick={() => setMode('select')}
+            onClick={goBack}
             style={{ background: 'none', border: 'none', fontSize: 14, color: '#6B7280', cursor: 'pointer' }}
           >
             ← 돌아가기
@@ -201,7 +208,7 @@ export default function WritingPage() {
         </div>
         {/* 점수 표시 */}
         <div style={{ background: '#FEF3C7', borderRadius: 10, padding: '6px 14px', fontSize: 13, fontWeight: 'bold', color: '#92400E' }}>
-          ⭐ {earnedScore}P ({visited.size}개 연습)
+          ⭐ {totalSavedP}P 저장됨
         </div>
       </div>
 
@@ -251,17 +258,26 @@ export default function WritingPage() {
           }}>
             🗑️ 지우기
           </button>
-          <button onClick={saveSession} disabled={isSaved || isSaving || visited.size === 0} style={{
-            padding: '8px 16px', borderRadius: 10, fontSize: 13, fontWeight: 'bold', cursor: 'pointer',
-            border: 'none',
-            backgroundColor: isSaved ? '#ECFDF5' : '#14B8A6',
-            color: isSaved ? '#059669' : '#fff',
-            opacity: visited.size === 0 ? 0.5 : 1,
-          }}>
-            {isSaved ? `✅ 저장완료 (+${earnedScore}P)` : isSaving ? '저장 중...' : `📂 저장 (+${earnedScore}P)`}
+          <button
+            onClick={saveWord}
+            disabled={isSaving || currentSaved}
+            style={{
+              padding: '8px 16px', borderRadius: 10, fontSize: 13, fontWeight: 'bold',
+              cursor: currentSaved ? 'default' : 'pointer',
+              border: 'none',
+              backgroundColor: currentSaved ? '#ECFDF5' : '#14B8A6',
+              color: currentSaved ? '#059669' : '#fff',
+            }}
+          >
+            {isSaving ? '저장 중...' : currentSaved ? '✅ 저장완료 (+1P)' : '📂 저장 (+1P)'}
           </button>
         </div>
       </div>
+      {saveError && (
+        <div style={{ marginTop: 10, padding: '8px 14px', borderRadius: 10, background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#DC2626', fontSize: 12, fontWeight: 600 }}>
+          ⚠️ {saveError}
+        </div>
+      )}
     </div>
   );
 }

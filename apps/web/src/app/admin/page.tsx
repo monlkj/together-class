@@ -52,6 +52,15 @@ export default function AdminPage() {
   const [recentRecs, setRecentRecs] = useState<RecentRecord[]>([]);
   const [loading, setLoading]       = useState(true);
   const [isTeacher, setIsTeacher]   = useState(false);
+  const [userNameMap, setUserNameMap] = useState<Record<string, string>>({});
+  const [teacherId, setTeacherId]   = useState('');
+  const [teacherName, setTeacherName] = useState('');
+  const [className, setClassName]   = useState('');
+  const [editingClass, setEditingClass] = useState(false);
+  const [classInput, setClassInput] = useState('');
+
+  interface StudentMessage { id: string; student_id: string; content: string; created_at: string; is_read: boolean; }
+  const [messages, setMessages] = useState<StudentMessage[]>([]);
 
   // ── 학생 관리 상태 ──
   const [newStudentName, setNewStudentName] = useState('');
@@ -61,6 +70,52 @@ export default function AdminPage() {
   const [creating, setCreating]           = useState(false);
   const [createResult, setCreateResult]   = useState<{ ok: boolean; msg: string } | null>(null);
 
+  const [existingEmail, setExistingEmail] = useState('');
+  const [existingPassword, setExistingPassword] = useState('');
+  const [addingExisting, setAddingExisting] = useState(false);
+  const [addExistingResult, setAddExistingResult] = useState<{ ok: boolean; msg: string } | null>(null);
+
+  // ── 학습 분석 필터 ──
+  const [filterStudent, setFilterStudent] = useState('');
+  const [filterType, setFilterType] = useState('');
+
+  // ── 과제 현황 ──
+  interface HomeworkItem { id: string; title: string; description: string | null; due_date: string | null; student_id: string | null; allow_dismiss: boolean; created_at: string; }
+  const [homeworks, setHomeworks] = useState<HomeworkItem[]>([]);
+
+  const handleAddExisting = async () => {
+    if (!existingEmail || !existingPassword) {
+      setAddExistingResult({ ok: false, msg: '이메일과 비밀번호를 모두 입력해주세요.' });
+      return;
+    }
+    setAddingExisting(true);
+    setAddExistingResult(null);
+    try {
+      const res = await fetch('/api/add-existing-student', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: existingEmail, password: existingPassword, teacherId }),
+      });
+      const json = await res.json();
+      if (!res.ok) { setAddExistingResult({ ok: false, msg: json.error }); return; }
+
+      // API에서 이미 DB 저장 확인 완료 → 목록만 갱신
+      const refreshRes = await fetch(`/api/get-students?teacherId=${teacherId}&t=${Date.now()}`, { cache: 'no-store' });
+      const refreshJson = await refreshRes.json();
+      if (refreshJson.students) {
+        setStudents(refreshJson.students.map((p: { id: string; name: string }) => ({
+          id: p.id, name: p.name, totalScore: 0, weekScore: 0, recordCount: 0, lastActive: null,
+        })));
+      }
+      setAddExistingResult({ ok: true, msg: `✅ ${json.user.name} 학생으로 등록되었습니다.` });
+      setExistingEmail('');
+      setExistingPassword('');
+    } catch (e) {
+      setAddExistingResult({ ok: false, msg: '오류가 발생했습니다. 다시 시도해주세요.' });
+    }
+    setAddingExisting(false);
+  };
+
   const [hwStudentId, setHwStudentId]       = useState('');
   const [hwTitle, setHwTitle]               = useState('');
   const [hwDesc, setHwDesc]                 = useState('');
@@ -69,72 +124,67 @@ export default function AdminPage() {
   const [hwSending, setHwSending]           = useState(false);
   const [hwResult, setHwResult]             = useState<{ ok: boolean; msg: string } | null>(null);
 
-  // ── 앱 초기화 모달 상태 ──
-  const [showResetModal, setShowResetModal] = useState(false);
-  const [resetWord, setResetWord]           = useState('');
-  const [mathProblems, setMathProblems]     = useState<{ q: string; a: number }[]>([]);
-  const [mathAnswers, setMathAnswers]       = useState(['', '']);
-  const [resetting, setResetting]           = useState(false);
+  // ── 계정 관리 모달 상태 ──
+  interface ManagedUser { id: string; maskedEmail: string; maskedName: string; role: string; createdAt: string; passwordLength: number; isMe: boolean; }
+  const [showAccountModal, setShowAccountModal]   = useState(false);
+  const [accountList, setAccountList]             = useState<ManagedUser[]>([]);
+  const [accountLoading, setAccountLoading]       = useState(false);
+  const [selectedForDelete, setSelectedForDelete] = useState<ManagedUser | null>(null);
+  const [deleteEmail, setDeleteEmail]             = useState('');
+  const [deletePassword1, setDeletePassword1]     = useState('');
+  const [deletePassword2, setDeletePassword2]     = useState('');
+  const [deleteWord, setDeleteWord]               = useState('');
+  const [deleteMath, setDeleteMath]               = useState<{ q: string; a: number }[]>([]);
+  const [deleteMathAns, setDeleteMathAns]         = useState(['', '']);
+  const [deleteConfirming, setDeleteConfirming]   = useState(false);
 
-  const openResetModal = () => {
-    const rand = (n: number) => Math.floor(Math.random() * n) + 1;
-    const a1 = rand(20), b1 = rand(20), a2 = rand(15), b2 = rand(15);
-    setMathProblems([
-      { q: `${a1} × ${b1}`, a: a1 * b1 },
-      { q: `${a2 * b2 + rand(10)} ÷ ${b2}`, a: a2 + Math.floor(rand(10) / b2) },
-    ]);
-    const c = rand(30), d = rand(c - 1);
-    setMathProblems([
-      { q: `${a1} × ${b1}`, a: a1 * b1 },
-      { q: `${c} − ${d}`, a: c - d },
-    ]);
-    setResetWord('');
-    setMathAnswers(['', '']);
-    setShowResetModal(true);
+  const openAccountModal = async () => {
+    setShowAccountModal(true);
+    setSelectedForDelete(null);
+    setAccountLoading(true);
+    const { data: { user } } = await supabase.auth.getUser();
+    const res = await fetch(`/api/get-all-users?requesterId=${user?.id ?? ''}`);
+    const json = await res.json();
+    setAccountList(json.users ?? []);
+    setAccountLoading(false);
   };
 
-  const doReset = async () => {
-    if (resetWord !== '초기화') { alert('"초기화"를 정확히 입력해주세요.'); return; }
-    if (parseInt(mathAnswers[0]) !== mathProblems[0]?.a || parseInt(mathAnswers[1]) !== mathProblems[1]?.a) {
+  const selectForDelete = (u: ManagedUser) => {
+    setSelectedForDelete(u);
+    setDeleteEmail(''); setDeletePassword1(''); setDeletePassword2('');
+    setDeleteWord(''); setDeleteMathAns(['', '']);
+    const r = (n: number) => Math.floor(Math.random() * n) + 1;
+    const [a1, b1, a2, b2] = [r(9), r(9), r(9), r(9)];
+    setDeleteMath([{ q: `${a1} + ${b1}`, a: a1 + b1 }, { q: `${a2} × ${b2}`, a: a2 * b2 }]);
+  };
+
+  const confirmDeleteAccount = async () => {
+    if (!selectedForDelete) return;
+    if (!deleteEmail || !deletePassword1 || !deletePassword2) { alert('모든 항목을 입력해주세요.'); return; }
+    if (deletePassword1 !== deletePassword2) { alert('비밀번호가 일치하지 않습니다.'); return; }
+    if (deleteWord !== '계정삭제') { alert('"계정삭제"를 정확히 입력해주세요.'); return; }
+    if (parseInt(deleteMathAns[0]) !== deleteMath[0]?.a || parseInt(deleteMathAns[1]) !== deleteMath[1]?.a) {
       alert('수학 문제 정답이 틀렸습니다.'); return;
     }
-    setResetting(true);
+    setDeleteConfirming(true);
     try {
-      const { data: { user } } = await supabase.auth.getUser();
       const res = await fetch('/api/reset-app', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requesterId: user?.id }),
+        body: JSON.stringify({ singleUserId: selectedForDelete.id, email: deleteEmail, password: deletePassword1 }),
       });
       const json = await res.json();
       if (res.ok) {
-        alert(`초기화 완료. ${json.deleted}개 계정이 삭제되었습니다.\n로그아웃됩니다.`);
-        await supabase.auth.signOut();
-        window.location.href = '/login';
+        setAccountList(prev => prev.filter(u => u.id !== selectedForDelete.id));
+        setSelectedForDelete(null);
       } else {
-        alert('초기화 실패: ' + json.error);
+        alert('계정삭제 실패: ' + json.error);
       }
     } finally {
-      setResetting(false);
-      setShowResetModal(false);
+      setDeleteConfirming(false);
     }
   };
 
-  // ── RAG / 페르소나 상태 ──
-  const [ragTab, setRagTab]         = useState<'rag' | 'persona'>('rag');
-  const [subject, setSubject]       = useState('국어');
-  const [unitTitle, setUnitTitle]   = useState('2단원. 흥부와 놀부');
-  const [passage, setPassage]       = useState(
-    '옛날 어느 마을에 흥부와 놀부 형제가 살았습니다. 형 놀부는 탐욕스러웠으나, 동생 흥부는 부모님이 돌아가신 후 형의 행패에도 불평하지 않고 순종했습니다.\n\n어느 날 흥부는 다리가 부러진 제비를 치료해주었고, 제비는 흥부에게 박 씨를 가져다주었습니다. 그 박 씨에서 금은보화가 쏟아져 흥부는 큰 부자가 되었습니다.'
-  );
-  const [charName, setCharName]         = useState('흥부');
-  const [systemPrompt, setSystemPrompt] = useState(
-    '너는 초등학교 국어 교과서 속 인물 흥부야. 1인칭("나")으로 어린 학생들의 눈높이에 맞추어 친절하게 대답해줘. 교과서에 없는 내용은 상상이라고 솔직히 밝히렴.'
-  );
-  const [indexedUnits] = useState([
-    { id: '1', subject: '국어 4-1', title: '2단원. 흥부와 놀부',          chunkCount: 2, date: '2026-07-25' },
-    { id: '2', subject: '국어 4-1', title: '3단원. 이순신 장군의 한산도 대첩', chunkCount: 4, date: '2026-07-24' },
-  ]);
 
   useEffect(() => {
     (async () => {
@@ -142,16 +192,26 @@ export default function AdminPage() {
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) { setLoading(false); return; }
+        setTeacherId(user.id);
 
         const { data: profile } = await supabase
-          .from('profiles').select('role').eq('id', user.id).single();
+          .from('profiles').select('role, name, class_name').eq('id', user.id).single();
         setIsTeacher(profile?.role === 'teacher');
+        setTeacherName(profile?.name || user.user_metadata?.name || '');
+        setClassName(profile?.class_name || '');
+        setClassInput(profile?.class_name || '');
+
+        // 학생 메시지 로드 (admin API로 RLS 우회)
+        const msgsRes = await fetch(`/api/get-messages?teacherId=${user.id}&t=${Date.now()}`, { cache: 'no-store' });
+        const msgsJson = await msgsRes.json();
+        setMessages(msgsJson.messages ?? []);
 
         const monday = getMondayISO();
 
-        // 전체 학생 목록
-        const { data: profiles } = await supabase
-          .from('profiles').select('id, name').neq('id', user.id);
+        // 전체 학생 목록 (서비스 롤 API로 RLS 우회)
+        const studentsRes = await fetch(`/api/get-students?teacherId=${user.id}&t=${Date.now()}`, { cache: 'no-store' });
+        const studentsJson = await studentsRes.json();
+        const profiles: { id: string; name: string }[] = studentsJson.students ?? [];
 
         // 전체 기록
         const { data: allRec } = await supabase
@@ -163,6 +223,21 @@ export default function AdminPage() {
         const nameMap: Record<string, string> = {};
         (profiles ?? []).forEach(p => { nameMap[p.id] = p.name; });
         nameMap[user.id] = '나 (현재 사용자)';
+
+        // 기록에 있지만 현재 클래스에 없는 이전 학생 이름 보완
+        const missingIds = [...new Set((allRec ?? []).map(r => r.user_id))]
+          .filter(id => !nameMap[id]);
+        if (missingIds.length > 0) {
+          const { data: missingProfiles } = await supabase
+            .from('profiles')
+            .select('id, name')
+            .in('id', missingIds);
+          (missingProfiles ?? []).forEach(p => {
+            if (p.name) nameMap[p.id] = `${p.name} (이전)`;
+          });
+        }
+
+        setUserNameMap(nameMap);
 
         // 학생별 통계 계산
         const statsMap: Record<string, StudentStat> = {};
@@ -182,24 +257,34 @@ export default function AdminPage() {
         const sorted = Object.values(statsMap).sort((a, b) => b.weekScore - a.weekScore);
         setStudents(sorted);
 
-        const recent: RecentRecord[] = (allRec ?? []).slice(0, 40).map(r => ({
-          ...r,
-          score: r.score ?? 0,
-          userName: nameMap[r.user_id] ?? '알 수 없음',
-        }));
+        const recent: RecentRecord[] = (allRec ?? [])
+          .filter(r => r.user_id !== user.id)
+          .slice(0, 40)
+          .map(r => ({
+            ...r,
+            score: r.score ?? 0,
+            userName: nameMap[r.user_id] ?? '알 수 없음',
+          }));
         setRecentRecs(recent);
+
+        // 과제 목록
+        const { data: hwData } = await supabase
+          .from('homework')
+          .select('id, title, description, due_date, student_id, allow_dismiss, created_at')
+          .order('created_at', { ascending: false });
+        setHomeworks(hwData ?? []);
       } catch {}
       setLoading(false);
     })();
   }, []);
 
   const handleDeleteStudent = async (studentId: string, studentName: string) => {
-    if (!confirm(`"${studentName}" 학생 계정을 완전히 삭제할까요?\n삭제 후 복구가 불가능합니다.`)) return;
+    if (!confirm(`"${studentName}" 학생을 클래스에서 제외할까요?\n계정은 유지되며 언제든 다시 등록할 수 있습니다.`)) return;
     try {
       const res = await fetch('/api/delete-student', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ studentId }),
+        body: JSON.stringify({ studentId, teacherId }),
       });
       const json = await res.json();
       if (!res.ok) throw new Error(json.error);
@@ -221,47 +306,26 @@ export default function AdminPage() {
     setCreating(true);
     setCreateResult(null);
     try {
-      // 현재 교사 세션 저장
-      const { data: { session: teacherSession } } = await supabase.auth.getSession();
-
-      // 학생 계정 생성 (이메일 인증 필요 설정이면 교사 세션 유지됨)
-      const { data, error } = await supabase.auth.signUp({
-        email: newStudentEmail,
-        password: newStudentPw,
-        options: {
-          data: { name: newStudentName, role: 'student', native_language: newStudentLang },
-        },
+      const res = await fetch('/api/create-student', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ name: newStudentName, email: newStudentEmail, password: newStudentPw, nativeLang: newStudentLang, teacherId }),
       });
-
-      if (error) {
-        setCreateResult({ ok: false, msg: error.message });
+      const json = await res.json();
+      if (!res.ok) {
+        setCreateResult({ ok: false, msg: json.error });
         setCreating(false);
         return;
       }
-
-      // signUp이 세션을 바꿨으면 교사 세션 복구
-      const { data: { session: afterSession } } = await supabase.auth.getSession();
-      if (teacherSession && afterSession?.user?.id !== teacherSession.user.id) {
-        await supabase.auth.setSession({
-          access_token: teacherSession.access_token,
-          refresh_token: teacherSession.refresh_token,
-        });
-      }
-
-      // 트리거(006)가 없을 경우 대비 직접 profiles 삽입 시도
-      if (data.user) {
-        await supabase.from('profiles').upsert({
-          id: data.user.id,
-          name: newStudentName,
-          role: 'student',
-          native_language: newStudentLang,
-        });
-      }
-
-      setCreateResult({
-        ok: true,
-        msg: `✅ ${newStudentName} 학생 계정 생성 완료! ${newStudentEmail}로 인증 메일 발송. 인증 후 로그인 가능합니다.`,
-      });
+      setStudents(prev => [...prev, {
+        id: json.user.id,
+        name: newStudentName,
+        totalScore: 0,
+        weekScore: 0,
+        recordCount: 0,
+        lastActive: null,
+      }]);
+      setCreateResult({ ok: true, msg: `✅ ${newStudentName} 학생 계정 생성 완료!` });
       setNewStudentName(''); setNewStudentEmail(''); setNewStudentPw('');
     } catch (e) {
       setCreateResult({ ok: false, msg: String(e) });
@@ -352,8 +416,8 @@ export default function AdminPage() {
       <div style={{ display: 'flex', gap: 8 }}>
         {([
           { key: 'overview',  label: '📊 학생 현황' },
-          { key: 'records',   label: '📋 학습 기록' },
-          { key: 'content',   label: '🛠️ 콘텐츠 관리' },
+          { key: 'records',   label: '📈 학습 분석' },
+          { key: 'content',   label: '📝 과제 현황' },
           { key: 'students',  label: '👥 학생 관리' },
         ] as const).map(t => (
           <button key={t.key} onClick={() => setTab(t.key)} style={{
@@ -368,6 +432,102 @@ export default function AdminPage() {
       {/* ── 학생 현황 탭 ── */}
       {tab === 'overview' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 16 }}>
+
+          {/* 클래스 정보 + 메시지 */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.5fr', gap: 14 }}>
+            {/* 클래스 설정 */}
+            <div style={{ background: '#fff', borderRadius: 16, padding: '18px 20px', border: '1px solid #E5E7EB' }}>
+              <div style={{ fontSize: 13, fontWeight: 700, color: '#1F2937', marginBottom: 10 }}>🏫 우리 클래스 정보</div>
+              {editingClass ? (
+                <div style={{ display: 'flex', gap: 8 }}>
+                  <input value={classInput} onChange={e => setClassInput(e.target.value)} placeholder="예: 3학년 2반" style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid #D1D5DB', fontSize: 13 }} />
+                  <button onClick={async () => {
+                    const { data: { user } } = await supabase.auth.getUser();
+                    if (!user) { alert('로그인 정보를 확인해주세요.'); return; }
+                    const res = await fetch('/api/update-profile', {
+                      method: 'POST',
+                      headers: { 'Content-Type': 'application/json' },
+                      body: JSON.stringify({ userId: user.id, class_name: classInput }),
+                    });
+                    const json = await res.json();
+                    if (!res.ok) { alert('저장 실패: ' + json.error); return; }
+                    if (json.saved !== classInput) {
+                      alert(`⚠️ DB 저장값 불일치: 입력="${classInput}", DB="${json.saved}"`);
+                    }
+                    setClassName(classInput); setEditingClass(false);
+                  }} style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: '#14B8A6', color: '#fff', fontWeight: 700, fontSize: 12, cursor: 'pointer' }}>저장</button>
+                  <button onClick={() => setEditingClass(false)} style={{ padding: '7px 10px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#fff', fontSize: 12, cursor: 'pointer' }}>취소</button>
+                </div>
+              ) : (
+                <div style={{ display: 'flex', alignItems: 'center', gap: 10 }}>
+                  <div style={{ flex: 1 }}>
+                    <div style={{ fontSize: 16, fontWeight: 700, color: className ? '#0D9488' : '#9CA3AF' }}>
+                      {className || '클래스 이름을 설정해주세요'}
+                    </div>
+                    <div style={{ fontSize: 12, color: '#9CA3AF', marginTop: 2 }}>{teacherName} 선생님</div>
+                  </div>
+                  <button onClick={() => setEditingClass(true)} style={{ padding: '6px 12px', borderRadius: 8, border: '1px solid #E5E7EB', background: '#F9FAFB', fontSize: 12, cursor: 'pointer', color: '#374151' }}>✏️ 수정</button>
+                </div>
+              )}
+              {className && (
+                <div style={{ marginTop: 10, padding: '8px 10px', background: '#F0FDFA', borderRadius: 8, fontSize: 11, color: '#0D9488' }}>
+                  학생 앱에 <b>🏫 {className}</b>으로 표시됩니다
+                </div>
+              )}
+            </div>
+
+            {/* 학생 메시지 */}
+            <div style={{ background: '#fff', borderRadius: 16, padding: '18px 20px', border: '1px solid #E5E7EB' }}>
+              <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 10 }}>
+                <div style={{ fontSize: 13, fontWeight: 700, color: '#1F2937' }}>
+                  💬 학생 메시지
+                  {messages.filter(m => !m.is_read).length > 0 && (
+                    <span style={{ marginLeft: 6, background: '#EF4444', color: '#fff', borderRadius: 10, fontSize: 10, padding: '1px 7px', fontWeight: 700 }}>{messages.filter(m => !m.is_read).length}</span>
+                  )}
+                </div>
+                <button onClick={async () => {
+                  if (!teacherId) return;
+                  const res = await fetch(`/api/get-messages?teacherId=${teacherId}&t=${Date.now()}`, { cache: 'no-store' });
+                  const json = await res.json();
+                  setMessages(json.messages ?? []);
+                }} style={{ fontSize: 11, color: '#6B7280', background: '#F3F4F6', border: 'none', borderRadius: 6, padding: '4px 8px', cursor: 'pointer' }}>🔄 새로고침</button>
+              </div>
+              {messages.length === 0 ? (
+                <div style={{ color: '#9CA3AF', fontSize: 12, textAlign: 'center', padding: '16px 0' }}>아직 받은 메시지가 없어요</div>
+              ) : (
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, maxHeight: 160, overflowY: 'auto' }}>
+                  {messages.map(m => (
+                    <div key={m.id} style={{ padding: '9px 12px', borderRadius: 10, background: m.is_read ? '#F9FAFB' : '#EFF6FF', border: m.is_read ? '1px solid #F3F4F6' : '1px solid #BFDBFE' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 4 }}>
+                        <span style={{ fontSize: 12, fontWeight: 600, color: '#374151' }}>{userNameMap[m.student_id] ?? '학생'}</span>
+                        <div style={{ display: 'flex', gap: 6, alignItems: 'center' }}>
+                          <span style={{ fontSize: 10, color: '#9CA3AF' }}>{new Date(m.created_at).toLocaleDateString('ko-KR')}</span>
+                          <button
+                            onClick={async () => {
+                              if (!confirm('메시지를 삭제할까요?')) return;
+                              const res = await fetch('/api/delete-message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ messageId: m.id }) });
+                              if (res.ok) setMessages(prev => prev.filter(x => x.id !== m.id));
+                            }}
+                            style={{ fontSize: 10, color: '#EF4444', background: 'none', border: 'none', cursor: 'pointer', padding: '1px 4px', borderRadius: 4 }}
+                          >🗑️</button>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.5 }}>{m.content}</div>
+                      {!m.is_read && (
+                        <button
+                          onClick={async () => {
+                            await supabase.from('student_messages').update({ is_read: true }).eq('id', m.id);
+                            setMessages(prev => prev.map(x => x.id === m.id ? { ...x, is_read: true } : x));
+                          }}
+                          style={{ marginTop: 6, display: 'block', fontSize: 11, color: '#fff', background: '#3B82F6', border: 'none', borderRadius: 6, cursor: 'pointer', padding: '4px 12px', fontWeight: 700 }}
+                        >✅ 확인</button>
+                      )}
+                    </div>
+                  ))}
+                </div>
+              )}
+            </div>
+          </div>
 
           {/* 통계 */}
           <div style={{ display: 'grid', gridTemplateColumns: 'repeat(4, 1fr)', gap: 12 }}>
@@ -460,198 +620,342 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ── 학습 기록 탭 ── */}
-      {tab === 'records' && (
-        <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
-          <div style={{ padding: '16px 20px', borderBottom: '1px solid #F3F4F6' }}>
-            <span style={{ fontSize: 15, fontWeight: 'bold', color: '#1F2937' }}>📋 최근 학습 기록 (전체 학생)</span>
-          </div>
-
-          {loading ? (
-            <div style={{ padding: 40, textAlign: 'center' as const, color: '#9CA3AF' }}>불러오는 중...</div>
-          ) : recentRecs.length === 0 ? (
-            <div style={{ padding: 40, textAlign: 'center' as const }}>
-              <div style={{ fontSize: 36, marginBottom: 12 }}>📭</div>
-              <p style={{ color: '#9CA3AF', fontSize: 13 }}>기록이 없거나 데이터 접근 권한이 없습니다.</p>
+      {/* ── 학습 분석 탭 ── */}
+      {tab === 'records' && (() => {
+        const filtered = recentRecs.filter(r =>
+          (!filterStudent || r.user_id === filterStudent) &&
+          (!filterType || r.type === filterType)
+        );
+        const totalPts = filtered.reduce((s, r) => s + r.score, 0);
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 14 }}>
+            {/* 필터 + 요약 */}
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, flexWrap: 'wrap' as const }}>
+              <select value={filterStudent} onChange={e => setFilterStudent(e.target.value)} style={{ padding: '8px 12px', borderRadius: 10, border: '1px solid #E5E7EB', fontSize: 13, background: '#fff', cursor: 'pointer' }}>
+                <option value="">👥 전체 학생</option>
+                {students.map(s => <option key={s.id} value={s.id}>{s.name}</option>)}
+              </select>
+              <select value={filterType} onChange={e => setFilterType(e.target.value)} style={{ padding: '8px 12px', borderRadius: 10, border: '1px solid #E5E7EB', fontSize: 13, background: '#fff', cursor: 'pointer' }}>
+                <option value="">📚 전체 활동</option>
+                {Object.entries(TYPE_META).filter(([k]) => k !== 'default').map(([k, v]) => (
+                  <option key={k} value={k}>{v.icon} {v.label}</option>
+                ))}
+              </select>
+              <div style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
+                <span style={{ fontSize: 13, color: '#6B7280' }}>총 <b style={{ color: '#1F2937' }}>{filtered.length}</b>건</span>
+                <span style={{ fontSize: 13, color: '#6B7280' }}>획득 포인트 <b style={{ color: '#F59E0B' }}>{totalPts}P</b></span>
+              </div>
             </div>
-          ) : (
-            recentRecs.map(r => {
-              const meta = TYPE_META[r.type] ?? TYPE_META['default'];
-              return (
-                <div key={r.id} style={{
-                  display: 'flex', alignItems: 'flex-start', gap: 14,
-                  padding: '14px 20px', borderBottom: '1px solid #F3F4F6',
-                }}>
-                  <div style={{
-                    width: 36, height: 36, borderRadius: 10, flexShrink: 0,
-                    background: meta.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18,
-                  }}>{meta.icon}</div>
-                  <div style={{ flex: 1, minWidth: 0 }}>
-                    <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
-                      <span style={{ fontSize: 12, fontWeight: 'bold', color: meta.color, background: meta.color + '15', padding: '2px 8px', borderRadius: 6 }}>{meta.label}</span>
-                      <span style={{ fontSize: 12, fontWeight: 'bold', color: '#1F2937' }}>{r.userName}</span>
-                      <span style={{ fontSize: 11, color: '#9CA3AF' }}>· {new Date(r.created_at).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
-                    </div>
-                    <div style={{ fontSize: 12, color: '#6B7280', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 600 }}>
-                      {r.content.slice(0, 80)}{r.content.length > 80 ? '...' : ''}
-                    </div>
-                  </div>
-                  {r.score > 0 && (
-                    <div style={{ fontSize: 13, fontWeight: 'bold', color: '#F59E0B', flexShrink: 0 }}>+{r.score}P</div>
-                  )}
+
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
+              {loading ? (
+                <div style={{ padding: 40, textAlign: 'center' as const, color: '#9CA3AF' }}>불러오는 중...</div>
+              ) : filtered.length === 0 ? (
+                <div style={{ padding: 40, textAlign: 'center' as const }}>
+                  <div style={{ fontSize: 36, marginBottom: 12 }}>📭</div>
+                  <p style={{ color: '#9CA3AF', fontSize: 13 }}>해당 조건의 기록이 없습니다.</p>
                 </div>
-              );
-            })
-          )}
-        </div>
-      )}
+              ) : (
+                filtered.map(r => {
+                  const meta = TYPE_META[r.type] ?? TYPE_META['default'];
+                  return (
+                    <div key={r.id} style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '14px 20px', borderBottom: '1px solid #F3F4F6' }}>
+                      <div style={{ width: 36, height: 36, borderRadius: 10, flexShrink: 0, background: meta.color + '20', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 18 }}>{meta.icon}</div>
+                      <div style={{ flex: 1, minWidth: 0 }}>
+                        <div style={{ display: 'flex', alignItems: 'center', gap: 8, marginBottom: 3 }}>
+                          <span style={{ fontSize: 12, fontWeight: 'bold', color: meta.color, background: meta.color + '15', padding: '2px 8px', borderRadius: 6 }}>{meta.label}</span>
+                          <span style={{ fontSize: 12, fontWeight: 'bold', color: '#1F2937' }}>{r.userName}</span>
+                          <span style={{ fontSize: 11, color: '#9CA3AF' }}>· {new Date(r.created_at).toLocaleString('ko-KR', { month: 'short', day: 'numeric', hour: '2-digit', minute: '2-digit' })}</span>
+                        </div>
+                        <div style={{ fontSize: 12, color: '#6B7280', whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 600 }}>
+                          {r.content.slice(0, 80)}{r.content.length > 80 ? '...' : ''}
+                        </div>
+                      </div>
+                      {r.score > 0 && <div style={{ fontSize: 13, fontWeight: 'bold', color: '#F59E0B', flexShrink: 0 }}>+{r.score}P</div>}
+                    </div>
+                  );
+                })
+              )}
+            </div>
+          </div>
+        );
+      })()}
 
       {/* ── 학생 관리 탭 ── */}
       {tab === 'students' && (
         <div style={{ display: 'flex', flexDirection: 'column', gap: 20 }}>
 
-          {/* 학생 계정 생성 */}
-          <div style={{ background: '#fff', padding: 24, borderRadius: 16, border: '1px solid #E5E7EB' }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 'bold', color: '#1F2937' }}>👤 학생 계정 생성</h3>
-            <p style={{ margin: '0 0 16px', fontSize: 12, color: '#6B7280' }}>교사가 직접 학생 계정을 만들어드립니다. 학생은 이메일 인증 없이 바로 로그인할 수 있습니다.</p>
+          {/* 두 섹션 나란히 */}
+          <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 16 }}>
 
-            {createResult && (
-              <div style={{
-                padding: '10px 14px', borderRadius: 8, marginBottom: 14, fontSize: 13, fontWeight: 600,
-                background: createResult.ok ? '#D1FAE5' : '#FEF2F2',
-                color: createResult.ok ? '#065F46' : '#B91C1C',
-              }}>
-                {createResult.ok ? '✅ ' : '❌ '}{createResult.msg}
+            {/* 학생 계정 생성 */}
+            <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #E5E7EB', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+              <div style={{ background: 'linear-gradient(135deg, #0D9488, #14B8A6)', padding: '18px 22px' }}>
+                <div style={{ fontSize: 22, marginBottom: 4 }}>👤</div>
+                <div style={{ fontSize: 15, fontWeight: 'bold', color: '#fff' }}>신규 학생 계정 생성</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>이메일 인증 없이 바로 로그인 가능</div>
               </div>
-            )}
 
-            <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: 12, marginBottom: 14 }}>
-              <div>
-                <label style={cS.label}>학생 이름</label>
-                <input value={newStudentName} onChange={e => setNewStudentName(e.target.value)} placeholder="홍길동" style={cS.input} />
-              </div>
-              <div>
-                <label style={cS.label}>이메일</label>
-                <input value={newStudentEmail} onChange={e => setNewStudentEmail(e.target.value)} placeholder="student@school.kr" style={cS.input} />
-              </div>
-              <div>
-                <label style={cS.label}>임시 비밀번호 (6자 이상)</label>
-                <input type="password" value={newStudentPw} onChange={e => setNewStudentPw(e.target.value)} placeholder="비밀번호" style={cS.input} />
-              </div>
-              <div>
-                <label style={cS.label}>모국어</label>
-                <select value={newStudentLang} onChange={e => setNewStudentLang(e.target.value)} style={cS.input}>
-                  {Object.values(SUPPORTED_LANGUAGES).map(l => (
-                    <option key={l.code} value={l.code}>{l.flagEmoji} {l.nameKo}</option>
-                  ))}
-                </select>
+              <div style={{ padding: '20px 22px' }}>
+                {createResult && (
+                  <div style={{
+                    padding: '9px 13px', borderRadius: 8, marginBottom: 14, fontSize: 12, fontWeight: 600,
+                    background: createResult.ok ? '#D1FAE5' : '#FEF2F2',
+                    color: createResult.ok ? '#065F46' : '#B91C1C',
+                    border: `1px solid ${createResult.ok ? '#6EE7B7' : '#FCA5A5'}`,
+                  }}>
+                    {createResult.msg}
+                  </div>
+                )}
+
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
+                  <div>
+                    <label style={cS.label}>학생 이름</label>
+                    <input value={newStudentName} onChange={e => setNewStudentName(e.target.value)} placeholder="홍길동" style={cS.input} />
+                  </div>
+                  <div>
+                    <label style={cS.label}>이메일</label>
+                    <input value={newStudentEmail} onChange={e => setNewStudentEmail(e.target.value)} placeholder="student@school.kr" style={cS.input} />
+                  </div>
+                  <div>
+                    <label style={cS.label}>임시 비밀번호 (6자 이상)</label>
+                    <input type="password" value={newStudentPw} onChange={e => setNewStudentPw(e.target.value)} placeholder="••••••" style={cS.input} />
+                  </div>
+                  <div>
+                    <label style={cS.label}>모국어</label>
+                    <select value={newStudentLang} onChange={e => setNewStudentLang(e.target.value)} style={cS.input}>
+                      {Object.values(SUPPORTED_LANGUAGES).map(l => (
+                        <option key={l.code} value={l.code}>{l.flagEmoji} {l.nameKo}</option>
+                      ))}
+                    </select>
+                  </div>
+                </div>
+
+                <button onClick={handleCreateStudent} disabled={creating} style={{
+                  width: '100%', marginTop: 16, padding: '12px', borderRadius: 10, border: 'none',
+                  background: creating ? '#9CA3AF' : 'linear-gradient(135deg, #0D9488, #14B8A6)',
+                  color: '#fff', fontWeight: 'bold', fontSize: 14, cursor: creating ? 'default' : 'pointer',
+                  boxShadow: creating ? 'none' : '0 2px 8px rgba(13,148,136,0.3)',
+                }}>
+                  {creating ? '생성 중...' : '+ 계정 생성'}
+                </button>
               </div>
             </div>
 
-            <button onClick={handleCreateStudent} disabled={creating} style={{ ...cS.saveBtn, opacity: creating ? 0.7 : 1 }}>
-              {creating ? '생성 중...' : '+ 학생 계정 생성'}
-            </button>
+            {/* 기존 계정 학생으로 추가 */}
+            <div style={{ background: '#fff', borderRadius: 18, border: '1px solid #E5E7EB', overflow: 'hidden', boxShadow: '0 2px 8px rgba(0,0,0,0.04)' }}>
+              <div style={{ background: 'linear-gradient(135deg, #3B82F6, #60A5FA)', padding: '18px 22px' }}>
+                <div style={{ fontSize: 22, marginBottom: 4 }}>🔗</div>
+                <div style={{ fontSize: 15, fontWeight: 'bold', color: '#fff' }}>기존 계정 학생 등록</div>
+                <div style={{ fontSize: 12, color: 'rgba(255,255,255,0.75)', marginTop: 2 }}>이미 가입된 이메일을 학생으로 전환</div>
+              </div>
+
+              <div style={{ padding: '20px 22px' }}>
+                {addExistingResult && (
+                  <div style={{
+                    padding: '9px 13px', borderRadius: 8, marginBottom: 14, fontSize: 12, fontWeight: 600,
+                    background: addExistingResult.ok ? '#D1FAE5' : '#FEF2F2',
+                    color: addExistingResult.ok ? '#065F46' : '#B91C1C',
+                    border: `1px solid ${addExistingResult.ok ? '#6EE7B7' : '#FCA5A5'}`,
+                  }}>{addExistingResult.msg}</div>
+                )}
+
+                <div style={{ background: '#F8FAFC', borderRadius: 12, padding: '14px 16px', marginBottom: 16, border: '1px solid #E5E7EB' }}>
+                  <div style={{ fontSize: 12, color: '#6B7280', lineHeight: 1.7 }}>
+                    <div>• 이미 가입된 계정을 학생으로 전환합니다</div>
+                    <div>• 기존 학습 기록은 유지됩니다</div>
+                    <div>• 로그아웃 후에도 학생 역할이 유지됩니다</div>
+                  </div>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 10 }}>
+                  <div>
+                    <label style={cS.label}>계정 이메일</label>
+                    <input
+                      value={existingEmail}
+                      onChange={e => setExistingEmail(e.target.value)}
+                      placeholder="student@school.kr"
+                      style={cS.input}
+                    />
+                  </div>
+                  <div>
+                    <label style={cS.label}>비밀번호 (본인 확인)</label>
+                    <input
+                      type="password"
+                      value={existingPassword}
+                      onChange={e => setExistingPassword(e.target.value)}
+                      placeholder="••••••"
+                      style={cS.input}
+                      onKeyDown={e => e.key === 'Enter' && handleAddExisting()}
+                    />
+                  </div>
+                </div>
+
+                <button onClick={handleAddExisting} disabled={addingExisting} style={{
+                  width: '100%', marginTop: 12, padding: '12px', borderRadius: 10, border: 'none',
+                  background: addingExisting ? '#9CA3AF' : 'linear-gradient(135deg, #3B82F6, #60A5FA)',
+                  color: '#fff', fontWeight: 'bold', fontSize: 14, cursor: addingExisting ? 'default' : 'pointer',
+                  boxShadow: addingExisting ? 'none' : '0 2px 8px rgba(59,130,246,0.3)',
+                }}>
+                  {addingExisting ? '처리 중...' : '학생으로 등록'}
+                </button>
+              </div>
+            </div>
+
           </div>
 
-          {/* 앱 초기화 */}
+          {/* 계정 관리 */}
           <div style={{ background: '#FEF2F2', padding: 24, borderRadius: 16, border: '1.5px solid #FCA5A5' }}>
-            <h3 style={{ margin: '0 0 4px', fontSize: 16, fontWeight: 'bold', color: '#B91C1C' }}>⚠️ 앱 초기화</h3>
+            <div style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 4 }}>
+              <h3 style={{ margin: 0, fontSize: 16, fontWeight: 'bold', color: '#B91C1C' }}>🔑 계정 관리</h3>
+              <span style={{ fontSize: 11, color: '#fff', background: '#EF4444', borderRadius: 6, padding: '2px 8px', fontWeight: 700 }}>⚠️ 사용 자제</span>
+            </div>
             <p style={{ margin: '0 0 16px', fontSize: 12, color: '#6B7280' }}>
-              모든 계정(교사 포함), 학습 기록, 과제를 삭제합니다. 복구가 불가능합니다.
+              등록된 계정 목록을 확인하고 개별 계정삭제할 수 있습니다. 삭제 후 복구 불가합니다.
             </p>
             <button
-              onClick={openResetModal}
+              onClick={openAccountModal}
               style={{
-                padding: '10px 24px', borderRadius: 10, border: 'none',
-                backgroundColor: '#EF4444', color: '#fff',
+                padding: '10px 24px', borderRadius: 10, border: '1.5px solid #FCA5A5',
+                backgroundColor: '#fff', color: '#B91C1C',
                 fontWeight: 'bold', fontSize: 14, cursor: 'pointer',
               }}
             >
-              🗑️ 앱 전체 초기화
+              🔑 계정 목록 보기
             </button>
           </div>
 
-          {/* 초기화 확인 모달 */}
-          {showResetModal && (
+          {/* 계정 관리 모달 */}
+          {showAccountModal && (
             <div style={{
               position: 'fixed', inset: 0, backgroundColor: 'rgba(0,0,0,0.55)',
-              zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center',
+              zIndex: 99999, display: 'flex', alignItems: 'center', justifyContent: 'center', padding: 20,
             }}>
               <div style={{
-                background: '#fff', borderRadius: 20, padding: 32, width: 380,
+                background: '#fff', borderRadius: 20, padding: 28, width: 520,
+                maxHeight: '90vh', overflowY: 'auto',
                 boxShadow: '0 20px 60px rgba(0,0,0,0.3)',
               }}>
-                <h2 style={{ margin: '0 0 6px', fontSize: 20, color: '#B91C1C' }}>⚠️ 앱 전체 초기화</h2>
-                <p style={{ margin: '0 0 24px', fontSize: 13, color: '#6B7280', lineHeight: 1.6 }}>
-                  모든 계정과 데이터가 영구 삭제됩니다.<br />아래 조건을 모두 충족해야 초기화됩니다.
-                </p>
-
-                <p style={{ margin: '0 0 6px', fontSize: 13, fontWeight: 'bold', color: '#374151' }}>
-                  1. 아래에 <span style={{ color: '#EF4444' }}>"초기화"</span>를 입력하세요
-                </p>
-                <input
-                  value={resetWord}
-                  onChange={e => setResetWord(e.target.value)}
-                  placeholder="초기화"
-                  style={{
-                    width: '100%', padding: '10px 12px', borderRadius: 8, fontSize: 14,
-                    border: '1.5px solid #FCA5A5', marginBottom: 20, boxSizing: 'border-box',
-                    outline: 'none',
-                  }}
-                />
-
-                <p style={{ margin: '0 0 12px', fontSize: 13, fontWeight: 'bold', color: '#374151' }}>
-                  2. 수학 문제를 풀어주세요
-                </p>
-                {mathProblems.map((prob, i) => (
-                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 10, marginBottom: 10 }}>
-                    <span style={{
-                      fontSize: 15, fontWeight: 'bold', color: '#1F2937',
-                      minWidth: 90, background: '#F3F4F6', padding: '8px 12px', borderRadius: 8,
-                    }}>
-                      {prob.q} = ?
-                    </span>
-                    <input
-                      type="number"
-                      value={mathAnswers[i]}
-                      onChange={e => {
-                        const next = [...mathAnswers];
-                        next[i] = e.target.value;
-                        setMathAnswers(next);
-                      }}
-                      placeholder="정답"
-                      style={{
-                        flex: 1, padding: '8px 12px', borderRadius: 8, fontSize: 14,
-                        border: '1.5px solid #D1D5DB', outline: 'none',
-                      }}
-                    />
+                <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+                  <div>
+                    <h2 style={{ margin: 0, fontSize: 18, color: '#1F2937' }}>🔑 계정 목록</h2>
+                    <p style={{ margin: '2px 0 0', fontSize: 11, color: '#9CA3AF' }}>본인 계정은 민트색으로 표시됩니다</p>
                   </div>
-                ))}
-
-                <div style={{ display: 'flex', gap: 10, marginTop: 24 }}>
-                  <button
-                    onClick={() => setShowResetModal(false)}
-                    style={{
-                      flex: 1, padding: '11px', borderRadius: 10,
-                      border: '1px solid #D1D5DB', background: '#F9FAFB',
-                      color: '#374151', fontWeight: 'bold', fontSize: 14, cursor: 'pointer',
-                    }}
-                  >
-                    취소
-                  </button>
-                  <button
-                    onClick={doReset}
-                    disabled={resetting}
-                    style={{
-                      flex: 1, padding: '11px', borderRadius: 10, border: 'none',
-                      backgroundColor: resetting ? '#FCA5A5' : '#EF4444',
-                      color: '#fff', fontWeight: 'bold', fontSize: 14,
-                      cursor: resetting ? 'default' : 'pointer',
-                    }}
-                  >
-                    {resetting ? '초기화 중...' : '🗑️ 초기화'}
-                  </button>
+                  <button onClick={() => setShowAccountModal(false)} style={{ background: 'none', border: 'none', fontSize: 20, cursor: 'pointer', color: '#6B7280' }}>✕</button>
                 </div>
+
+                {/* 계정 목록 헤더 */}
+                <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 70px 72px', gap: 8, padding: '6px 10px', background: '#F3F4F6', borderRadius: 8, marginBottom: 8, fontSize: 11, fontWeight: 700, color: '#6B7280' }}>
+                  <span>이름 / 역할</span><span>계정 ID</span><span>비밀번호</span><span></span>
+                </div>
+
+                <div style={{ display: 'flex', flexDirection: 'column', gap: 6, marginBottom: 8 }}>
+                  {accountLoading ? (
+                    <div style={{ textAlign: 'center', padding: 32, color: '#9CA3AF' }}>불러오는 중...</div>
+                  ) : accountList.length === 0 ? (
+                    <div style={{ textAlign: 'center', padding: 32, color: '#9CA3AF' }}>계정이 없습니다</div>
+                  ) : accountList.map(u => (
+                    <div key={u.id} style={{
+                      display: 'grid', gridTemplateColumns: '1fr 1fr 70px 72px', gap: 8, alignItems: 'center',
+                      padding: '10px 12px', borderRadius: 10,
+                      background: selectedForDelete?.id === u.id ? '#FEF2F2' : u.isMe ? '#F0FDFA' : u.role === 'teacher' ? '#FFFBEB' : '#F9FAFB',
+                      border: selectedForDelete?.id === u.id ? '1.5px solid #FCA5A5' : u.isMe ? '1.5px solid #14B8A6' : u.role === 'teacher' ? '1px solid #FDE68A' : '1px solid #F3F4F6',
+                    }}>
+                      <div>
+                        <span style={{ fontSize: 13, fontWeight: 700, color: '#374151' }}>{u.maskedName}</span>
+                        {u.isMe && <span style={{ fontSize: 10, color: '#0D9488', marginLeft: 5, fontWeight: 700 }}>나</span>}
+                        <div style={{ marginTop: 2 }}>
+                          {u.role === 'teacher'
+                            ? <span style={{ fontSize: 10, background: '#FDE68A', color: '#92400E', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>교사</span>
+                            : <span style={{ fontSize: 10, background: '#DBEAFE', color: '#1D4ED8', padding: '1px 6px', borderRadius: 4, fontWeight: 700 }}>학생</span>
+                          }
+                        </div>
+                      </div>
+                      <span style={{ fontSize: 11, color: '#6B7280', fontFamily: 'monospace', overflow: 'hidden', textOverflow: 'ellipsis', whiteSpace: 'nowrap' }}>{u.maskedEmail}</span>
+                      <span style={{ fontSize: 12, color: '#D1D5DB', letterSpacing: 0 }}>{'●'.repeat(Math.min(u.passwordLength || 8, 12))}</span>
+                      <button
+                        onClick={() => selectForDelete(u)}
+                        style={{
+                          padding: '5px 8px', borderRadius: 7, border: 'none',
+                          background: selectedForDelete?.id === u.id ? '#EF4444' : '#FEF2F2',
+                          color: selectedForDelete?.id === u.id ? '#fff' : '#EF4444',
+                          fontSize: 11, fontWeight: 700, cursor: 'pointer',
+                        }}
+                      >
+                        {selectedForDelete?.id === u.id ? '✓ 선택됨' : '🗑️ 삭제'}
+                      </button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* 계정삭제 인증 폼 */}
+                {selectedForDelete && (
+                  <div style={{ borderTop: '2px solid #FCA5A5', paddingTop: 20, marginTop: 8 }}>
+                    <div style={{ background: '#FEF2F2', borderRadius: 10, padding: '10px 14px', marginBottom: 16, display: 'flex', alignItems: 'center', gap: 8 }}>
+                      <span style={{ fontSize: 14 }}>⚠️</span>
+                      <div>
+                        <div style={{ fontSize: 13, fontWeight: 700, color: '#B91C1C' }}>계정삭제 확인</div>
+                        <div style={{ fontSize: 12, color: '#6B7280', marginTop: 2 }}><b>{selectedForDelete.maskedName}</b> ({selectedForDelete.maskedEmail}) 계정을 삭제합니다. 복구 불가합니다.</div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: 10 }}>
+                      <div>
+                        <label style={cS.label}>1. 삭제할 계정의 이메일 입력</label>
+                        <input value={deleteEmail} onChange={e => setDeleteEmail(e.target.value)} placeholder="정확한 이메일 주소" style={cS.input} />
+                      </div>
+                      <div>
+                        <label style={cS.label}>2. 비밀번호 입력</label>
+                        <input type="password" value={deletePassword1} onChange={e => setDeletePassword1(e.target.value)} placeholder="비밀번호" style={cS.input} />
+                      </div>
+                      <div>
+                        <label style={cS.label}>3. 비밀번호 재입력</label>
+                        <input type="password" value={deletePassword2} onChange={e => setDeletePassword2(e.target.value)} placeholder="비밀번호 확인" style={cS.input} />
+                      </div>
+                      <div>
+                        <label style={cS.label}>4. 아래 칸에 <b style={{ color: '#B91C1C' }}>계정삭제</b> 라고 입력</label>
+                        <input value={deleteWord} onChange={e => setDeleteWord(e.target.value)} placeholder="계정삭제" style={{ ...cS.input, borderColor: deleteWord === '계정삭제' ? '#10B981' : undefined }} />
+                      </div>
+                      <div>
+                        <label style={cS.label}>5. 수학 문제 풀기</label>
+                        <div style={{ display: 'flex', gap: 10 }}>
+                          {deleteMath.map((m, i) => (
+                            <div key={i} style={{ flex: 1, background: '#F9FAFB', borderRadius: 10, padding: '10px 14px', border: '1px solid #E5E7EB' }}>
+                              <div style={{ fontSize: 14, fontWeight: 700, color: '#1F2937', marginBottom: 6 }}>{m.q} = ?</div>
+                              <input
+                                type="number"
+                                value={deleteMathAns[i]}
+                                onChange={e => setDeleteMathAns(prev => prev.map((v, j) => j === i ? e.target.value : v))}
+                                placeholder="답"
+                                style={{ ...cS.input, padding: '8px 12px', fontSize: 16, textAlign: 'center' as const }}
+                              />
+                            </div>
+                          ))}
+                        </div>
+                      </div>
+                    </div>
+
+                    <div style={{ display: 'flex', gap: 10, marginTop: 16 }}>
+                      <button
+                        onClick={() => setSelectedForDelete(null)}
+                        style={{ flex: 1, padding: '12px', borderRadius: 10, border: '1px solid #E5E7EB', background: '#F9FAFB', fontSize: 14, cursor: 'pointer', fontWeight: 700, color: '#6B7280' }}
+                      >
+                        취소
+                      </button>
+                      <button
+                        onClick={confirmDeleteAccount}
+                        disabled={deleteConfirming}
+                        style={{
+                          flex: 2, padding: '12px', borderRadius: 10, border: 'none',
+                          background: deleteConfirming ? '#9CA3AF' : '#EF4444',
+                          color: '#fff', fontSize: 14, cursor: deleteConfirming ? 'default' : 'pointer', fontWeight: 700,
+                        }}
+                      >
+                        {deleteConfirming ? '처리 중...' : '🗑️ 계정삭제'}
+                      </button>
+                    </div>
+                  </div>
+                )}
               </div>
             </div>
           )}
@@ -724,74 +1028,86 @@ export default function AdminPage() {
         </div>
       )}
 
-      {/* ── 콘텐츠 관리 탭 (RAG + 페르소나) ── */}
-      {tab === 'content' && (
-        <div>
-          {/* 서브탭 */}
-          <div style={{ display: 'flex', gap: 8, marginBottom: 16 }}>
-            {([{ key: 'rag', label: '📚 교과서 RAG 색인' }, { key: 'persona', label: '🎭 인물 페르소나' }] as const).map(t => (
-              <button key={t.key} onClick={() => setRagTab(t.key)} style={{
-                padding: '9px 18px', borderRadius: 10, fontSize: 13, fontWeight: 'bold', cursor: 'pointer',
-                border: ragTab === t.key ? '1.5px solid #14B8A6' : '1.5px solid #E5E7EB',
-                background: ragTab === t.key ? '#F0FDFA' : '#F9FAFB',
-                color: ragTab === t.key ? '#0D9488' : '#374151',
-              }}>{t.label}</button>
-            ))}
+      {/* ── 과제 현황 탭 ── */}
+      {tab === 'content' && (() => {
+        const now = new Date();
+        const activeHw = homeworks.filter(h => !h.due_date || new Date(h.due_date) >= now);
+        const expiredHw = homeworks.filter(h => h.due_date && new Date(h.due_date) < now);
+
+        const deleteHw = async (hwId: string) => {
+          if (!confirm('이 과제를 삭제할까요?')) return;
+          const { error } = await supabase.from('homework').delete().eq('id', hwId);
+          if (!error) setHomeworks(prev => prev.filter(h => h.id !== hwId));
+        };
+
+        const HwCard = ({ h, expired }: { h: HomeworkItem; expired: boolean }) => {
+          const target = h.student_id ? (userNameMap[h.student_id] ?? '(삭제된 학생)') : '전체 학생';
+          const dueDate = h.due_date ? new Date(h.due_date).toLocaleDateString('ko-KR') : '기한 없음';
+          return (
+            <div style={{ display: 'flex', alignItems: 'flex-start', gap: 14, padding: '16px 20px', borderBottom: '1px solid #F3F4F6', opacity: expired ? 0.55 : 1 }}>
+              <div style={{ width: 40, height: 40, borderRadius: 10, flexShrink: 0, background: expired ? '#F3F4F6' : '#EFF6FF', display: 'flex', alignItems: 'center', justifyContent: 'center', fontSize: 20 }}>
+                {expired ? '📂' : '📌'}
+              </div>
+              <div style={{ flex: 1, minWidth: 0 }}>
+                <div style={{ fontSize: 14, fontWeight: 'bold', color: '#1F2937', marginBottom: 4 }}>{h.title}</div>
+                {h.description && <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 4, whiteSpace: 'nowrap' as const, overflow: 'hidden', textOverflow: 'ellipsis', maxWidth: 500 }}>{h.description}</div>}
+                <div style={{ display: 'flex', gap: 10, flexWrap: 'wrap' as const }}>
+                  <span style={{ fontSize: 11, background: '#EFF6FF', color: '#3B82F6', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>👤 {target}</span>
+                  <span style={{ fontSize: 11, background: expired ? '#FEF2F2' : '#F0FDF4', color: expired ? '#EF4444' : '#16A34A', padding: '2px 8px', borderRadius: 6, fontWeight: 600 }}>
+                    {expired ? '⏰ 기한만료' : '📅'} {dueDate}
+                  </span>
+                  <span style={{ fontSize: 11, color: '#9CA3AF' }}>
+                    {h.allow_dismiss ? '🗑️ 삭제 허용' : '🔒 삭제 금지'}
+                  </span>
+                  <span style={{ fontSize: 11, color: '#9CA3AF' }}>
+                    등록 {new Date(h.created_at).toLocaleDateString('ko-KR')}
+                  </span>
+                </div>
+              </div>
+              <button onClick={() => deleteHw(h.id)} style={{ padding: '6px 12px', borderRadius: 8, fontSize: 12, border: '1px solid #FCA5A5', backgroundColor: '#FEF2F2', color: '#EF4444', cursor: 'pointer', fontWeight: 'bold', flexShrink: 0 }}>삭제</button>
+            </div>
+          );
+        };
+
+        return (
+          <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 16 }}>
+            {/* 요약 */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 12 }}>
+              {[
+                { label: '진행 중 과제', value: activeHw.length, unit: '건', color: '#3B82F6', bg: '#EFF6FF' },
+                { label: '기한 만료', value: expiredHw.length, unit: '건', color: '#EF4444', bg: '#FEF2F2' },
+                { label: '전체 과제', value: homeworks.length, unit: '건', color: '#6B7280', bg: '#F9FAFB' },
+              ].map(s => (
+                <div key={s.label} style={{ background: s.bg, borderRadius: 14, padding: '16px', textAlign: 'center' as const, boxShadow: '0 1px 4px rgba(0,0,0,0.05)' }}>
+                  <div style={{ fontSize: 26, fontWeight: 'bold', color: s.color }}>{s.value}<span style={{ fontSize: 13 }}>{s.unit}</span></div>
+                  <div style={{ fontSize: 12, color: '#6B7280', marginTop: 4, fontWeight: 600 }}>{s.label}</div>
+                </div>
+              ))}
+            </div>
+
+            {/* 진행 중 */}
+            <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
+              <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', background: '#F8FAFC' }}>
+                <span style={{ fontSize: 14, fontWeight: 'bold', color: '#1F2937' }}>📌 진행 중인 과제</span>
+              </div>
+              {activeHw.length === 0
+                ? <div style={{ padding: 32, textAlign: 'center' as const, color: '#9CA3AF', fontSize: 13 }}>진행 중인 과제가 없습니다.</div>
+                : activeHw.map(h => <HwCard key={h.id} h={h} expired={false} />)
+              }
+            </div>
+
+            {/* 만료됨 */}
+            {expiredHw.length > 0 && (
+              <div style={{ background: '#fff', borderRadius: 16, border: '1px solid #E5E7EB', overflow: 'hidden' }}>
+                <div style={{ padding: '14px 20px', borderBottom: '1px solid #F3F4F6', background: '#FEF2F2' }}>
+                  <span style={{ fontSize: 14, fontWeight: 'bold', color: '#EF4444' }}>⏰ 기한 만료된 과제</span>
+                </div>
+                {expiredHw.map(h => <HwCard key={h.id} h={h} expired={true} />)}
+              </div>
+            )}
           </div>
-
-          {ragTab === 'rag' && (
-            <div style={{ display: 'grid', gridTemplateColumns: '1.2fr 1fr', gap: 16 }}>
-              <div style={{ background: '#fff', padding: 24, borderRadius: 16, border: '1px solid #E5E7EB' }}>
-                <h3 style={{ margin: '0 0 16px', fontSize: 16, color: '#1F2937' }}>교과서 신규 지문 등록</h3>
-                {([
-                  { label: '과목 및 학년', val: subject, set: setSubject, type: 'input' },
-                  { label: '단원 제목', val: unitTitle, set: setUnitTitle, type: 'input' },
-                  { label: '교과서 원문 텍스트', val: passage, set: setPassage, type: 'textarea' },
-                ] as const).map(f => (
-                  <div key={f.label} style={{ marginBottom: 14 }}>
-                    <label style={cS.label}>{f.label}</label>
-                    {f.type === 'textarea'
-                      ? <textarea value={f.val} onChange={e => (f.set as (v: string) => void)(e.target.value)} style={{ ...cS.input, height: 140, resize: 'vertical' as const }} />
-                      : <input value={f.val} onChange={e => (f.set as (v: string) => void)(e.target.value)} style={cS.input} />
-                    }
-                  </div>
-                ))}
-                <button onClick={() => alert('pgvector 임베딩 생성 & DB 저장 완료!')} style={cS.saveBtn}>
-                  ⚡ Supabase pgvector 임베딩 생성 & DB 저장
-                </button>
-              </div>
-
-              <div style={{ background: '#fff', padding: 24, borderRadius: 16, border: '1px solid #E5E7EB' }}>
-                <h3 style={{ margin: '0 0 16px', fontSize: 16, color: '#1F2937' }}>색인된 교과서 단원 목록</h3>
-                {indexedUnits.map(u => (
-                  <div key={u.id} style={{ padding: '12px 14px', background: '#F9FAFB', borderRadius: 10, marginBottom: 10, border: '1px solid #E5E7EB' }}>
-                    <div style={{ fontSize: 11, fontWeight: 'bold', color: '#0D9488' }}>{u.subject}</div>
-                    <div style={{ fontSize: 14, fontWeight: 'bold', color: '#1F2937', marginTop: 2 }}>{u.title}</div>
-                    <div style={{ fontSize: 11, color: '#6B7280', marginTop: 4 }}>임베딩 {u.chunkCount}문단 · {u.date}</div>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          {ragTab === 'persona' && (
-            <div style={{ background: '#fff', padding: 24, borderRadius: 16, border: '1px solid #E5E7EB', maxWidth: 680 }}>
-              <h3 style={{ margin: '0 0 16px', fontSize: 16, color: '#1F2937' }}>인물 페르소나 시스템 프롬프트 관리</h3>
-              <div style={{ marginBottom: 14 }}>
-                <label style={cS.label}>인물 이름</label>
-                <input value={charName} onChange={e => setCharName(e.target.value)} style={cS.input} />
-              </div>
-              <div style={{ marginBottom: 16 }}>
-                <label style={cS.label}>시스템 프롬프트</label>
-                <textarea value={systemPrompt} onChange={e => setSystemPrompt(e.target.value)} style={{ ...cS.input, height: 140 }} />
-              </div>
-              <button onClick={() => alert('페르소나 설정 저장 완료!')} style={cS.saveBtn}>
-                💾 페르소나 설정 저장
-              </button>
-            </div>
-          )}
-        </div>
-      )}
+        );
+      })()}
     </div>
   );
 }

@@ -22,6 +22,11 @@ function HomeworkInbox() {
   const [selectedId, setSelectedId] = useState<string | null>(null);
   const [open, setOpen] = useState(false);
   const [userId, setUserId] = useState('');
+  const [teacherId, setTeacherId] = useState<string | null>(null);
+  const [msgText, setMsgText] = useState('');
+  const [sendingMsg, setSendingMsg] = useState(false);
+  const [msgSent, setMsgSent] = useState(false);
+  const [msgError, setMsgError] = useState<string | null>(null);
   const panelRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
@@ -32,11 +37,11 @@ function HomeworkInbox() {
 
       const { data: profile } = await supabase
         .from('profiles').select('role').eq('id', user.id).single();
-      if (!profile) return;
-      setRole(profile.role);
+      const resolvedRole = profile?.role || user.user_metadata?.role || '';
+      setRole(resolvedRole);
 
-      if (profile.role === 'student') {
-        const [{ data: hw }, { data: reads }] = await Promise.all([
+      if (resolvedRole === 'student') {
+        const [{ data: hw }, { data: reads }, { data: studentProfile }] = await Promise.all([
           supabase
             .from('homework')
             .select('id, title, description, due_date, created_at, allow_dismiss')
@@ -47,11 +52,18 @@ function HomeworkInbox() {
             .from('homework_reads')
             .select('homework_id, dismissed')
             .eq('student_id', user.id),
+          supabase
+            .from('profiles')
+            .select('teacher_id')
+            .eq('id', user.id)
+            .single(),
         ]);
-        setHomeworks(hw ?? []);
+        const now = new Date();
+        setHomeworks((hw ?? []).filter(h => !h.due_date || new Date(h.due_date) >= now));
         const readList = (reads ?? []) as { homework_id: string; dismissed: boolean }[];
         setReadIds(new Set(readList.filter(r => !r.dismissed).map(r => r.homework_id)));
         setDismissedIds(new Set(readList.filter(r => r.dismissed).map(r => r.homework_id)));
+        if (studentProfile?.teacher_id) setTeacherId(studentProfile.teacher_id);
       }
     })();
   }, []);
@@ -219,9 +231,48 @@ function HomeworkInbox() {
             )}
           </div>
 
-          <div style={{ padding: '10px 18px', borderTop: '1px solid #F3F4F6', fontSize: 11, color: '#9CA3AF', textAlign: 'center' }}>
-            선생님께 과제 완료를 직접 알려드리세요 😊
-          </div>
+          {/* 선생님께 메시지 보내기 */}
+          {teacherId && (
+            <div style={{ padding: '12px 16px', borderTop: '1px solid #F3F4F6', background: '#FAFAFA' }}>
+              <div style={{ fontSize: 12, fontWeight: 700, color: '#374151', marginBottom: 6 }}>✉️ 선생님께 메시지</div>
+              {msgSent ? (
+                <div style={{ fontSize: 12, color: '#059669', textAlign: 'center', padding: '6px 0' }}>✅ 메시지를 보냈어요!</div>
+              ) : msgError ? (
+                <div style={{ fontSize: 11, color: '#DC2626', padding: '4px 0' }}>⚠️ {msgError}</div>
+              ) : (
+                <div style={{ display: 'flex', gap: 6 }}>
+                  <input
+                    value={msgText}
+                    onChange={e => setMsgText(e.target.value)}
+                    placeholder="선생님께 하고 싶은 말..."
+                    style={{ flex: 1, padding: '7px 10px', borderRadius: 8, border: '1px solid #D1D5DB', fontSize: 12, outline: 'none' }}
+                    onKeyDown={async e => {
+                      if (e.key === 'Enter' && msgText.trim()) {
+                        e.preventDefault();
+                        setSendingMsg(true); setMsgError(null);
+                        const res = await fetch('/api/send-message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ studentId: userId, teacherId, content: msgText.trim() }) });
+                        const json = await res.json();
+                        if (!res.ok) { setMsgError(json.error); } else { setMsgText(''); setMsgSent(true); setTimeout(() => setMsgSent(false), 3000); }
+                        setSendingMsg(false);
+                      }
+                    }}
+                  />
+                  <button
+                    disabled={sendingMsg || !msgText.trim()}
+                    onClick={async () => {
+                      if (!msgText.trim()) return;
+                      setSendingMsg(true); setMsgError(null);
+                      const res = await fetch('/api/send-message', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ studentId: userId, teacherId, content: msgText.trim() }) });
+                      const json = await res.json();
+                      if (!res.ok) { setMsgError(json.error); } else { setMsgText(''); setMsgSent(true); setTimeout(() => setMsgSent(false), 3000); }
+                      setSendingMsg(false);
+                    }}
+                    style={{ padding: '7px 12px', borderRadius: 8, border: 'none', background: '#3B82F6', color: '#fff', fontSize: 12, fontWeight: 700, cursor: 'pointer' }}
+                  >전송</button>
+                </div>
+              )}
+            </div>
+          )}
         </div>
       )}
     </div>

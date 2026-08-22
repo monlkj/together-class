@@ -165,6 +165,18 @@ export default function PersonaPage() {
   const chatEndRef = useRef<HTMLDivElement>(null);
 
   useEffect(() => {
+    (async () => {
+      const { supabase } = await import('../../lib/supabase');
+      const { data: { user } } = await supabase.auth.getUser();
+      if (!user) return;
+      const { data: profile } = await supabase
+        .from('profiles').select('native_language').eq('id', user.id).single();
+      const lang = (profile?.native_language || user.user_metadata?.native_language || 'ru') as LanguageCode;
+      setNativeLang(lang);
+    })();
+  }, []);
+
+  useEffect(() => {
     chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
   }, [messages]);
 
@@ -231,14 +243,8 @@ export default function PersonaPage() {
           <h1 style={styles.title}>🎭 인물 인터뷰 & RAG</h1>
           <p style={styles.subtitle}>교과서 속 인물에게 직접 질문하고 1인칭으로 대답을 들어보세요.</p>
         </div>
-        <div style={styles.langRow}>
-          <span style={styles.langLabel}>내 언어</span>
-          {LANG_LIST.map(l => (
-            <button key={l.code} onClick={() => setNativeLang(l.code)}
-              style={{ ...styles.langChip, ...(nativeLang === l.code ? styles.langChipActive : {}) }}>
-              {l.flagEmoji}
-            </button>
-          ))}
+        <div style={{ fontSize: 12, color: '#9CA3AF', background: '#F9FAFB', borderRadius: 10, padding: '6px 12px' }}>
+          번역 언어: {SUPPORTED_LANGUAGES[nativeLang]?.flagEmoji} {SUPPORTED_LANGUAGES[nativeLang]?.nameKo}
         </div>
       </div>
 

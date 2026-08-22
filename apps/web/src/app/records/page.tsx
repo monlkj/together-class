@@ -248,6 +248,7 @@ interface LearningRecord {
   content: string;
   language: string;
   created_at: string;
+  image_url?: string | null;
 }
 
 const TYPE_META: Record<string, { icon: string; color: string; bg: string; label: string }> = {
@@ -344,7 +345,8 @@ export default function RecordsPage() {
 
   const correctCount = answers.filter(Boolean).length;
   const wrongCount = answers.filter(v => !v).length;
-  const quizPoints = Math.max(0, correctCount * 5 - wrongCount * 2);
+  const quizPoints = questions.reduce((sum, q, i) =>
+    answers[i] ? sum + (q.difficulty === '하' ? 1 : q.difficulty === '중' ? 2 : 3) : sum, 0);
 
   const saveQuizResult = async () => {
     if (isSaved || isSaving) return;
@@ -358,7 +360,7 @@ export default function RecordsPage() {
           : null)
         .filter(Boolean)
         .join('\n\n');
-      const content = `[복습 퀴즈] ${correctCount}/${questions.length}문제 정답 (+${correctCount * 5}P, -${wrongCount * 2}P = ${quizPoints}P)\n난이도: ${diffFilter === 'all' ? '전체' : diffFilter}\n\n${wrongLines || '✅ 모두 정답!'}`;
+      const content = `[복습 퀴즈] ${correctCount}/${questions.length}문제 정답 · ${quizPoints}P (하1P·중2P·상3P)\n난이도: ${diffFilter === 'all' ? '전체' : diffFilter}\n\n${wrongLines || '✅ 모두 정답!'}`;
       const { error: insertError } = await supabase
         .from('learning_records')
         .insert({ user_id: user.id, type: 'quiz', content, language: 'ko', score: quizPoints });
@@ -504,6 +506,13 @@ export default function RecordsPage() {
                       {isOpen && (
                         <div style={s.recordBody}>
                           <p style={{ margin: 0, fontSize: '13px', color: '#374151', lineHeight: '1.7', whiteSpace: 'pre-wrap' }}>{r.content}</p>
+                          {r.image_url && (
+                            <img
+                              src={r.image_url}
+                              alt="글씨 쓰기"
+                              style={{ marginTop: 10, width: '100%', borderRadius: 8, border: '1px solid #E5E7EB' }}
+                            />
+                          )}
                         </div>
                       )}
                     </div>
@@ -683,9 +692,8 @@ export default function RecordsPage() {
                 {questions.length}문제 중 <strong style={{ color: '#1F2937' }}>{correctCount}문제</strong> 정답
               </p>
               <div style={{ display: 'flex', gap: 8, marginBottom: 24, flexWrap: 'wrap' as const, justifyContent: 'center' }}>
-                <span style={{ background: '#ECFDF5', color: '#059669', padding: '4px 12px', borderRadius: 20, fontSize: 13, fontWeight: 'bold' }}>✅ +{correctCount * 5}P</span>
-                <span style={{ background: '#FEF2F2', color: '#DC2626', padding: '4px 12px', borderRadius: 20, fontSize: 13, fontWeight: 'bold' }}>❌ -{wrongCount * 2}P</span>
-                <span style={{ background: '#FEF3C7', color: '#92400E', padding: '4px 12px', borderRadius: 20, fontSize: 13, fontWeight: 'bold' }}>⭐ 최종 {quizPoints}P</span>
+                <span style={{ background: '#FEF3C7', color: '#92400E', padding: '4px 12px', borderRadius: 20, fontSize: 13, fontWeight: 'bold' }}>⭐ {quizPoints}P 획득</span>
+                <span style={{ background: '#F3F4F6', color: '#6B7280', padding: '4px 12px', borderRadius: 20, fontSize: 11, fontWeight: 600 }}>하 1P · 중 2P · 상 3P</span>
               </div>
 
               {/* 문항별 정오표 */}

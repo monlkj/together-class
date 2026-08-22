@@ -94,19 +94,23 @@
 }
 
 /* ── 텍스트 색상 ── */
-[data-theme="dark"] main [style*="color:#1F2937"] {
+[data-theme="dark"] main [style*="color:#1F2937"],
+[data-theme="dark"] main [style*="color: #1F2937"] {
   color: #E2E8F0 !important;
 }
 
-[data-theme="dark"] main [style*="color:#374151"] {
+[data-theme="dark"] main [style*="color:#374151"],
+[data-theme="dark"] main [style*="color: #374151"] {
   color: #CBD5E1 !important;
 }
 
-[data-theme="dark"] main [style*="color:#6B7280"] {
+[data-theme="dark"] main [style*="color:#6B7280"],
+[data-theme="dark"] main [style*="color: #6B7280"] {
   color: #94A3B8 !important;
 }
 
-[data-theme="dark"] main [style*="color:#9CA3AF"] {
+[data-theme="dark"] main [style*="color:#9CA3AF"],
+[data-theme="dark"] main [style*="color: #9CA3AF"] {
   color: #64748B !important;
 }
 

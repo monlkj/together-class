@@ -98,6 +98,7 @@ export default function DashboardPage() {
   );
   const [totalCount, setTotalCount] = useState(0);
   const [weekCount, setWeekCount] = useState(0);
+  const [recentActivity, setRecentActivity] = useState<{ type: string; score: number; created_at: string }[]>([]);
 
   useEffect(() => {
     const fetchAll = async () => {
@@ -110,8 +111,11 @@ export default function DashboardPage() {
         .eq('id', user.id)
         .single();
       if (profile) {
-        setUserName(profile.name);
-        setUserRole(profile.role);
+        setUserName(profile.name || user.user_metadata?.name || '');
+        setUserRole(profile.role || user.user_metadata?.role || '');
+      } else {
+        setUserName(user.user_metadata?.name || '');
+        setUserRole(user.user_metadata?.role || '');
       }
 
       const now = new Date();
@@ -143,12 +147,13 @@ export default function DashboardPage() {
         })));
       }
 
-      // 전체 누적 점수
-      const { data: allRec } = await supabase
-        .from('learning_records')
-        .select('score')
-        .eq('user_id', user.id);
+      // 전체 누적 점수 + 최근 기록
+      const [{ data: allRec }, { data: recent }] = await Promise.all([
+        supabase.from('learning_records').select('score').eq('user_id', user.id),
+        supabase.from('learning_records').select('type, score, created_at').eq('user_id', user.id).order('created_at', { ascending: false }).limit(6),
+      ]);
       if (allRec) setTotalCount(allRec.reduce((s, r) => s + (r.score ?? 0), 0));
+      if (recent) setRecentActivity(recent);
     };
     fetchAll();
   }, []);
@@ -286,32 +291,92 @@ export default function DashboardPage() {
         ))}
       </div>
 
-      {/* 주간 학습 활동 */}
-      <div style={{
-        backgroundColor: '#fff',
-        borderRadius: 16,
-        padding: '22px 28px',
-        boxShadow: '0 2px 8px rgba(0,0,0,0.05)',
-      }}>
-        <div style={{ fontSize: 15, fontWeight: 'bold', color: '#1F2937', marginBottom: 20 }}>📈 주간 학습 활동</div>
-        <div style={{ display: 'flex', alignItems: 'flex-end', gap: 12, height: 100 }}>
-          {weeklyData.map((d, i) => (
-            <div key={d.day} style={{ flex: 1, display: 'flex', flexDirection: 'column', alignItems: 'center', gap: 6 }}>
-              <div style={{ width: '100%', height: 80, display: 'flex', alignItems: 'flex-end' }}>
-                <div style={{
-                  width: '100%',
-                  height: `${Math.max(d.value, 6)}%`,
-                  borderRadius: '6px 6px 0 0',
-                  backgroundColor: i === todayIdx ? '#0EA5E9' : d.count > 0 ? '#14B8A6' : '#E5E7EB',
-                  minHeight: 4,
-                  transition: 'height 0.4s',
-                }} />
-              </div>
-              <span style={{ fontSize: 12, color: i === todayIdx ? '#0EA5E9' : '#9CA3AF', fontWeight: i === todayIdx ? 'bold' : 600 }}>{d.day}</span>
-              {d.count > 0 && <span style={{ fontSize: 10, color: '#14B8A6', fontWeight: 'bold' }}>{d.count}</span>}
+      {/* 하단 2열: 주간 차트 + 최근 활동 */}
+      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: 16 }}>
+
+        {/* 주간 학습 활동 */}
+        <div style={{ backgroundColor: '#fff', borderRadius: 16, padding: '20px 22px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+          <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: 16 }}>
+            <div>
+              <div style={{ fontSize: 14, fontWeight: 'bold', color: '#1F2937' }}>📈 주간 활동</div>
+              <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 2 }}>이번 주 획득 점수</div>
             </div>
-          ))}
+            <div style={{ textAlign: 'right' as const }}>
+              <div style={{ fontSize: 22, fontWeight: 'bold', color: '#0EA5E9' }}>{weekCount}<span style={{ fontSize: 12, marginLeft: 2 }}>P</span></div>
+              <div style={{ fontSize: 10, color: '#9CA3AF' }}>{weeklyData.filter(d => d.count > 0).length}일 활동</div>
+            </div>
+          </div>
+          <div style={{ display: 'flex', alignItems: 'flex-end', gap: 6, height: 160 }}>
+            {weeklyData.map((d, i) => {
+              const isToday = i === todayIdx;
+              const hasData = d.count > 0;
+              return (
+                <div key={d.day} style={{ flex: 1, display: 'flex', flexDirection: 'column' as const, alignItems: 'center', gap: 4 }}>
+                  {hasData && <span style={{ fontSize: 9, fontWeight: 'bold', color: isToday ? '#0EA5E9' : '#14B8A6' }}>{d.count}P</span>}
+                  <div style={{ width: '100%', flex: 1, display: 'flex', alignItems: 'flex-end' }}>
+                    <div style={{
+                      width: '100%',
+                      height: `${Math.max(d.value, 5)}%`,
+                      minHeight: hasData ? 10 : 3,
+                      borderRadius: '6px 6px 0 0',
+                      background: isToday ? 'linear-gradient(180deg,#38BDF8,#0EA5E9)' : hasData ? 'linear-gradient(180deg,#5EEAD4,#14B8A6)' : '#F3F4F6',
+                      transition: 'height 0.5s cubic-bezier(.4,0,.2,1)',
+                    }} />
+                  </div>
+                  <div style={{ textAlign: 'center' as const }}>
+                    <span style={{ fontSize: 11, fontWeight: isToday ? 'bold' : 600, color: isToday ? '#0EA5E9' : '#6B7280', background: isToday ? 'rgba(14,165,233,0.1)' : 'transparent', padding: '1px 4px', borderRadius: 5 }}>
+                      {d.day}
+                    </span>
+                    <div style={{ fontSize: 9, color: hasData ? (isToday ? '#0EA5E9' : '#14B8A6') : '#D1D5DB', fontWeight: 600, marginTop: 1 }}>
+                      {hasData ? `${d.count}P` : '·'}
+                    </div>
+                  </div>
+                </div>
+              );
+            })}
+          </div>
         </div>
+
+        {/* 최근 학습 기록 */}
+        <div style={{ backgroundColor: '#fff', borderRadius: 16, padding: '20px 22px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
+          <div style={{ fontSize: 14, fontWeight: 'bold', color: '#1F2937', marginBottom: 14 }}>🕐 최근 학습 기록</div>
+          {recentActivity.length === 0 ? (
+            <div style={{ display: 'flex', flexDirection: 'column' as const, alignItems: 'center', justifyContent: 'center', height: 140, color: '#9CA3AF', fontSize: 13 }}>
+              <div style={{ fontSize: 32, marginBottom: 8 }}>📭</div>
+              아직 학습 기록이 없어요
+            </div>
+          ) : (
+            <div style={{ display: 'flex', flexDirection: 'column' as const, gap: 8 }}>
+              {recentActivity.map((r, i) => {
+                const typeMap: Record<string, { icon: string; label: string; color: string }> = {
+                  translate: { icon: '🌐', label: '번역기', color: '#14B8A6' },
+                  interpret: { icon: '🎙️', label: '음성 통역', color: '#3B82F6' },
+                  debate:    { icon: '💬', label: 'AI 토론', color: '#F59E0B' },
+                  notice:    { icon: '📄', label: '가정통신문', color: '#EC4899' },
+                  dictation: { icon: '✍️', label: '받아쓰기', color: '#06B6D4' },
+                  persona:   { icon: '🎭', label: '인물 인터뷰', color: '#8B5CF6' },
+                  quiz:      { icon: '📝', label: '복습 퀴즈', color: '#6D28D9' },
+                  writing:   { icon: '🖊️', label: '글씨 연습', color: '#84CC16' },
+                };
+                const meta = typeMap[r.type] ?? { icon: '📋', label: r.type, color: '#6B7280' };
+                const date = new Date(r.created_at);
+                const diff = Math.floor((Date.now() - date.getTime()) / 60000);
+                const timeAgo = diff < 60 ? `${diff}분 전` : diff < 1440 ? `${Math.floor(diff/60)}시간 전` : `${Math.floor(diff/1440)}일 전`;
+                return (
+                  <div key={i} style={{ display: 'flex', alignItems: 'center', gap: 12, padding: '9px 12px', borderRadius: 10, background: '#F9FAFB' }}>
+                    <div style={{ fontSize: 18, width: 32, textAlign: 'center' as const }}>{meta.icon}</div>
+                    <div style={{ flex: 1 }}>
+                      <div style={{ fontSize: 13, fontWeight: 600, color: '#1F2937' }}>{meta.label}</div>
+                      <div style={{ fontSize: 11, color: '#9CA3AF', marginTop: 1 }}>{timeAgo}</div>
+                    </div>
+                    <div style={{ fontSize: 13, fontWeight: 'bold', color: meta.color }}>+{r.score}P</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+
       </div>
 
     </div>

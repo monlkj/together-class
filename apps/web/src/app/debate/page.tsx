@@ -126,18 +126,64 @@ const EXPRESSIONS = [
   '만약 ~라면 어떨까요?',
 ];
 
+const LANG_BCP47: Record<string, string> = {
+  ko: 'ko-KR', ru: 'ru-RU', zh: 'zh-CN', vi: 'vi-VN', uz: 'uz-UZ', kk: 'kk-KZ',
+};
+
+function speakText(text: string, lang: string) {
+  if (!text.trim() || typeof window === 'undefined') return;
+  window.speechSynthesis.cancel();
+
+  const doSpeak = () => {
+    const utt = new SpeechSynthesisUtterance(text);
+    utt.lang = LANG_BCP47[lang] ?? 'ko-KR';
+    utt.rate = 0.85;
+    utt.volume = 1;
+
+    const voices = window.speechSynthesis.getVoices();
+    const bcp = (LANG_BCP47[lang] ?? lang).toLowerCase();
+    const prefix = bcp.split('-')[0];
+    const voice = voices.find(v => v.lang.toLowerCase() === bcp)
+      || voices.find(v => v.lang.toLowerCase().startsWith(prefix));
+    if (voice) utt.voice = voice;
+
+    window.speechSynthesis.speak(utt);
+  };
+
+  if (window.speechSynthesis.getVoices().length === 0) {
+    window.speechSynthesis.addEventListener('voiceschanged', doSpeak, { once: true });
+  } else {
+    setTimeout(doSpeak, 50);
+  }
+}
+
 export default function DebatePage() {
   const [selectedTopic, setSelectedTopic] = useState<typeof TOPICS[0] | null>(null);
   const [nativeLang, setNativeLang] = useState<LanguageCode>('ru');
   const [messages, setMessages] = useState<Message[]>([]);
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
+  const [translating, setTranslating] = useState(false);
   const [showBoth, setShowBoth] = useState(true);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef(messages);
 
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
+  useEffect(() => { chatEndRef.current?.scrollIntoView({ behavior: 'smooth' }); }, [messages]);
+
+  // 언어 변경 시 기존 메시지 전체 재번역
   useEffect(() => {
-    chatEndRef.current?.scrollIntoView({ behavior: 'smooth' });
-  }, [messages]);
+    const msgs = messagesRef.current;
+    if (msgs.length === 0) return;
+    setTranslating(true);
+    Promise.all(
+      msgs.map(async m => ({ ...m, textNative: await translateToNative(m.textKo, nativeLang) }))
+    ).then(newMsgs => {
+      setMessages(newMsgs);
+      setTranslating(false);
+    });
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [nativeLang]);
 
   const startTopic = async (topic: typeof TOPICS[0]) => {
     setSelectedTopic(topic);
@@ -155,62 +201,30 @@ export default function DebatePage() {
     setLoading(true);
 
     const userNative = await translateToNative(msg, nativeLang);
-    const newUser: Message = {
-      id: Date.now().toString(),
-      sender: 'user',
-      textKo: msg,
-      textNative: userNative,
-    };
+    const newUser: Message = { id: Date.now().toString(), sender: 'user', textKo: msg, textNative: userNative };
     setMessages(prev => [...prev, newUser]);
 
     await new Promise(r => setTimeout(r, 800));
 
     const aiKo = getAiResponse(selectedTopic, msg);
     const aiNative = await translateToNative(aiKo, nativeLang);
-    const newAi: Message = {
-      id: (Date.now() + 1).toString(),
-      sender: 'ai',
-      textKo: aiKo,
-      textNative: aiNative,
-    };
+    const newAi: Message = { id: (Date.now() + 1).toString(), sender: 'ai', textKo: aiKo, textNative: aiNative };
     setMessages(prev => [...prev, newAi]);
     setLoading(false);
   };
 
-  const speak = (text: string, lang: string) => {
-    window.speechSynthesis.cancel();
-    const utter = new SpeechSynthesisUtterance(text);
-    const langMap: Record<string, string> = { ko: 'ko-KR', ru: 'ru-RU', zh: 'zh-CN', vi: 'vi-VN', uz: 'uz-UZ', kk: 'kk-KZ' };
-    utter.lang = langMap[lang] ?? 'ko-KR';
-    utter.rate = 0.9;
-    window.speechSynthesis.speak(utter);
-  };
+  const currentLangInfo = SUPPORTED_LANGUAGES[nativeLang];
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
-      {/* Header */}
-      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'flex-start', flexWrap: 'wrap', gap: '12px' }}>
-        <div>
-          <h1 style={styles.title}>💬 AI 토론 친구</h1>
-          <p style={styles.subtitle}>교과서 주제로 AI 친구 민준이와 토론하며 비판적 사고력을 키워보세요.</p>
-        </div>
-        {/* Language picker */}
-        <div style={styles.langRow}>
-          <span style={styles.langLabel}>내 언어</span>
-          {LANG_LIST.map(l => (
-            <button
-              key={l.code}
-              onClick={() => setNativeLang(l.code)}
-              style={{ ...styles.langChip, ...(nativeLang === l.code ? styles.langChipActive : {}) }}
-            >
-              {l.flagEmoji}
-            </button>
-          ))}
-        </div>
+      {/* 헤더 — 언어선택 없음 */}
+      <div>
+        <h1 style={styles.title}>💬 AI 토론 친구</h1>
+        <p style={styles.subtitle}>교과서 주제로 AI 친구 민준이와 토론하며 비판적 사고력을 키워보세요.</p>
       </div>
 
       {!selectedTopic ? (
-        /* Topic Selection */
+        /* 주제 선택 화면 — 언어선택 없음 */
         <div>
           <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 'bold', color: '#374151' }}>토론 주제를 선택하세요</p>
           <div style={styles.topicGrid}>
@@ -229,11 +243,11 @@ export default function DebatePage() {
           </div>
         </div>
       ) : (
-        /* Chat View */
+        /* 채팅 화면 */
         <div style={styles.chatLayout}>
-          {/* Chat Panel */}
+          {/* 채팅 패널 */}
           <div style={styles.chatPanel}>
-            {/* Topic Banner */}
+            {/* 주제 배너 */}
             <div style={{ ...styles.topicBanner, backgroundColor: selectedTopic.bg, borderColor: selectedTopic.color }}>
               <span style={{ fontSize: '18px' }}>{selectedTopic.emoji}</span>
               <div style={{ flex: 1 }}>
@@ -243,27 +257,26 @@ export default function DebatePage() {
               <button onClick={() => { setSelectedTopic(null); setMessages([]); }} style={styles.changeBtn}>주제 변경</button>
             </div>
 
-            {/* Display toggle */}
+            {/* 표시 모드 토글 */}
             <div style={styles.toggleRow}>
               <button onClick={() => setShowBoth(true)} style={{ ...styles.toggleBtn, ...(showBoth ? styles.toggleActive : {}) }}>한국어 + 번역</button>
               <button onClick={() => setShowBoth(false)} style={{ ...styles.toggleBtn, ...(!showBoth ? styles.toggleActive : {}) }}>번역만</button>
+              {translating && (
+                <span style={{ marginLeft: 10, fontSize: 11, color: '#9CA3AF' }}>🔄 번역 중...</span>
+              )}
             </div>
 
-            {/* Messages */}
+            {/* 메시지 목록 */}
             <div style={styles.messages}>
               {messages.map(m => (
                 <div key={m.id} style={{ display: 'flex', justifyContent: m.sender === 'user' ? 'flex-end' : 'flex-start', marginBottom: '16px', gap: '10px' }}>
-                  {m.sender === 'ai' && (
-                    <div style={styles.avatar}>👦</div>
-                  )}
+                  {m.sender === 'ai' && <div style={styles.avatar}>👦</div>}
                   <div style={{ maxWidth: '72%' }}>
                     <div style={{ fontSize: '11px', color: '#9CA3AF', marginBottom: '4px', textAlign: m.sender === 'user' ? 'right' : 'left' }}>
-                      {m.sender === 'ai' ? 'AI 친구 민준' : `나 (${SUPPORTED_LANGUAGES[nativeLang]?.nameKo})`}
+                      {m.sender === 'ai' ? 'AI 친구 민준' : `나 (한국어)`}
                     </div>
                     <div style={{ ...styles.bubble, ...(m.sender === 'user' ? styles.bubbleUser : styles.bubbleAi) }}>
-                      {showBoth && (
-                        <p style={styles.bubbleKo}>{m.textKo}</p>
-                      )}
+                      {showBoth && <p style={styles.bubbleKo}>{m.textKo}</p>}
                       {m.textNative !== m.textKo && (
                         <p style={{ ...styles.bubbleNative, ...(m.sender === 'user' ? { color: '#0D9488' } : { color: '#7C3AED' }) }}>
                           {m.textNative}
@@ -271,15 +284,15 @@ export default function DebatePage() {
                       )}
                     </div>
                     <div style={{ display: 'flex', gap: '4px', marginTop: '4px', justifyContent: m.sender === 'user' ? 'flex-end' : 'flex-start' }}>
-                      <button onClick={() => speak(m.textKo, 'ko')} style={styles.miniBtn} title="한국어 읽기">🔊 KO</button>
+                      <button onClick={() => speakText(m.textKo, 'ko')} style={styles.miniBtn} title="한국어 읽기">🔊 KO</button>
                       {m.textNative !== m.textKo && (
-                        <button onClick={() => speak(m.textNative, nativeLang)} style={styles.miniBtn} title="번역어 읽기">🔊 {SUPPORTED_LANGUAGES[nativeLang]?.nameKo.slice(0,2)}</button>
+                        <button onClick={() => speakText(m.textNative, nativeLang)} style={styles.miniBtn} title="번역어 읽기">
+                          🔊 {currentLangInfo?.nameKo.slice(0, 2)}
+                        </button>
                       )}
                     </div>
                   </div>
-                  {m.sender === 'user' && (
-                    <div style={{ ...styles.avatar, backgroundColor: '#CCFBF1' }}>🎒</div>
-                  )}
+                  {m.sender === 'user' && <div style={{ ...styles.avatar, backgroundColor: '#CCFBF1' }}>🎒</div>}
                 </div>
               ))}
 
@@ -294,7 +307,7 @@ export default function DebatePage() {
               <div ref={chatEndRef} />
             </div>
 
-            {/* Input */}
+            {/* 입력 */}
             <div style={styles.inputRow}>
               <input
                 value={input}
@@ -308,15 +321,43 @@ export default function DebatePage() {
                 onClick={() => handleSend()}
                 disabled={loading || !input.trim()}
                 style={{ ...styles.sendBtn, opacity: (loading || !input.trim()) ? 0.5 : 1 }}
-              >
-                전송
-              </button>
+              >전송</button>
             </div>
           </div>
 
-          {/* Side Panel */}
+          {/* 사이드 패널 */}
           <div style={styles.sidePanel}>
-            {/* Expression bank */}
+            {/* ── 번역 언어 선택 (채팅 안에만 표시) ── */}
+            <div style={{ ...styles.sideCard, border: '1.5px solid #14B8A6', background: '#F0FDFA' }}>
+              <h4 style={{ ...styles.sideTitle, color: '#0D9488' }}>🌍 AI 친구 번역 언어</h4>
+              <p style={{ ...styles.sideHint, marginBottom: 10 }}>
+                민준이의 말을 이 언어로 번역합니다
+              </p>
+              <div style={{ display: 'flex', flexWrap: 'wrap', gap: 6 }}>
+                {LANG_LIST.map(l => (
+                  <button
+                    key={l.code}
+                    onClick={() => setNativeLang(l.code as LanguageCode)}
+                    title={l.nameKo}
+                    style={{
+                      fontSize: 11, padding: '4px 8px', borderRadius: 8, cursor: 'pointer',
+                      border: nativeLang === l.code ? '1.5px solid #0D9488' : '1.5px solid #D1D5DB',
+                      background: nativeLang === l.code ? '#0D9488' : '#fff',
+                      color: nativeLang === l.code ? '#fff' : '#374151',
+                      fontWeight: nativeLang === l.code ? 700 : 500,
+                      transition: 'all 0.15s',
+                    }}
+                  >
+                    {l.flagEmoji} {l.nameKo}
+                  </button>
+                ))}
+              </div>
+              <div style={{ marginTop: 8, fontSize: 11, color: '#0D9488', fontWeight: 600 }}>
+                현재: {currentLangInfo?.flagEmoji} {currentLangInfo?.nameKo}
+              </div>
+            </div>
+
+            {/* 표현 모음 */}
             <div style={styles.sideCard}>
               <h4 style={styles.sideTitle}>💡 토론 표현 모음</h4>
               <p style={styles.sideHint}>클릭하면 바로 전송됩니다</p>
@@ -327,7 +368,7 @@ export default function DebatePage() {
               ))}
             </div>
 
-            {/* Tips */}
+            {/* 팁 */}
             <div style={{ ...styles.sideCard, backgroundColor: '#FFFBEB', border: '1px solid #FDE68A' }}>
               <h4 style={{ ...styles.sideTitle, color: '#92400E' }}>📚 토론 잘하는 법</h4>
               <ul style={styles.tipList}>
@@ -348,14 +389,6 @@ const styles: Record<string, React.CSSProperties> = {
   title: { margin: '0 0 6px 0', fontSize: '24px', fontWeight: 'bold', color: '#1F2937' },
   subtitle: { margin: 0, color: '#6B7280', fontSize: '13px' },
 
-  langRow: { display: 'flex', alignItems: 'center', gap: '6px' },
-  langLabel: { fontSize: '12px', color: '#9CA3AF', fontWeight: 'bold' },
-  langChip: {
-    fontSize: '20px', padding: '4px 8px', borderRadius: '8px',
-    border: '1.5px solid #E5E7EB', backgroundColor: '#F9FAFB', cursor: 'pointer',
-  },
-  langChipActive: { border: '1.5px solid #14B8A6', backgroundColor: '#CCFBF1' },
-
   topicGrid: { display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: '14px' },
   topicCard: {
     display: 'flex', flexDirection: 'column', gap: '8px',
@@ -373,13 +406,11 @@ const styles: Record<string, React.CSSProperties> = {
   chatLayout: { display: 'grid', gridTemplateColumns: '1fr 280px', gap: '16px', alignItems: 'start' },
   chatPanel: {
     backgroundColor: '#FFFFFF', borderRadius: '16px',
-    border: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column',
-    overflow: 'hidden',
+    border: '1px solid #E5E7EB', display: 'flex', flexDirection: 'column', overflow: 'hidden',
   },
 
   topicBanner: {
-    display: 'flex', alignItems: 'center', gap: '12px',
-    padding: '14px 18px', borderBottom: '1.5px solid',
+    display: 'flex', alignItems: 'center', gap: '12px', padding: '14px 18px', borderBottom: '1.5px solid',
   },
   changeBtn: {
     fontSize: '11px', fontWeight: 'bold', color: '#6B7280',
@@ -388,13 +419,11 @@ const styles: Record<string, React.CSSProperties> = {
   },
 
   toggleRow: {
-    display: 'flex', gap: '0', borderBottom: '1px solid #F3F4F6',
-    padding: '10px 16px',
+    display: 'flex', alignItems: 'center', gap: '0', borderBottom: '1px solid #F3F4F6', padding: '10px 16px',
   },
   toggleBtn: {
     fontSize: '12px', fontWeight: 'bold', padding: '5px 12px',
-    border: '1px solid #E5E7EB', backgroundColor: '#F9FAFB',
-    color: '#6B7280', cursor: 'pointer',
+    border: '1px solid #E5E7EB', backgroundColor: '#F9FAFB', color: '#6B7280', cursor: 'pointer',
   },
   toggleActive: { backgroundColor: '#1F2937', color: '#FFFFFF', borderColor: '#1F2937' },
 
@@ -418,8 +447,7 @@ const styles: Record<string, React.CSSProperties> = {
   inputRow: { display: 'flex', gap: '8px', padding: '14px 16px', borderTop: '1px solid #F3F4F6' },
   input: {
     flex: 1, padding: '12px 14px', borderRadius: '10px',
-    border: '1.5px solid #E5E7EB', fontSize: '14px', outline: 'none',
-    fontFamily: 'inherit',
+    border: '1.5px solid #E5E7EB', fontSize: '14px', outline: 'none', fontFamily: 'inherit',
   },
   sendBtn: {
     backgroundColor: '#F59E0B', color: '#FFFFFF',
@@ -429,8 +457,7 @@ const styles: Record<string, React.CSSProperties> = {
 
   sidePanel: { display: 'flex', flexDirection: 'column', gap: '12px' },
   sideCard: {
-    backgroundColor: '#FFFFFF', borderRadius: '14px',
-    border: '1px solid #E5E7EB', padding: '16px',
+    backgroundColor: '#FFFFFF', borderRadius: '14px', border: '1px solid #E5E7EB', padding: '16px',
   },
   sideTitle: { margin: '0 0 4px 0', fontSize: '13px', fontWeight: 'bold', color: '#1F2937' },
   sideHint: { margin: '0 0 10px 0', fontSize: '11px', color: '#9CA3AF' },
@@ -438,11 +465,9 @@ const styles: Record<string, React.CSSProperties> = {
     display: 'block', width: '100%', padding: '8px 10px',
     borderRadius: '8px', border: '1px solid #E5E7EB',
     backgroundColor: '#F9FAFB', color: '#374151',
-    cursor: 'pointer', marginBottom: '6px',
-    fontSize: '12px', textAlign: 'left', fontWeight: 500,
+    cursor: 'pointer', marginBottom: '6px', fontSize: '12px', textAlign: 'left', fontWeight: 500,
   },
   tipList: {
-    margin: '8px 0 0 0', paddingLeft: '16px',
-    fontSize: '12px', color: '#78350F', lineHeight: '1.8',
+    margin: '8px 0 0 0', paddingLeft: '16px', fontSize: '12px', color: '#78350F', lineHeight: '1.8',
   },
 };

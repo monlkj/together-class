@@ -47,10 +47,26 @@ const PODIUM_BG    = ['#FFFBEB', '#F8FAFC', '#FFF7ED'];
 // 점수 획득 토스트
 interface Toast { id: number; emoji: string; name: string; pts: number; }
 
+type UpdateMode = 'realtime' | 'gentle' | 'entry' | 'manual';
+
+const UPDATE_MODES: { key: UpdateMode; label: string; desc: string }[] = [
+  { key: 'realtime', label: '⚡ 실시간', desc: '5~12초마다 자동 갱신' },
+  { key: 'gentle',   label: '🌱 조금씩', desc: '항상 조금씩 올라가기 (30~40초)' },
+  { key: 'entry',    label: '📄 입장 시', desc: '랭킹 페이지 들어갈 때만 갱신' },
+  { key: 'manual',   label: '⏸ 수동',   desc: '버튼으로만 갱신' },
+];
+
 export default function RankingPage() {
   const [userName, setUserName] = useState('나');
   const [userScore, setUserScore] = useState(0);
   const [loading, setLoading] = useState(true);
+  const [showSettings, setShowSettings] = useState(false);
+  const [updateMode, setUpdateMode] = useState<UpdateMode>(() => {
+    const stored = typeof window !== 'undefined' ? localStorage.getItem('rankingUpdateMode') : null;
+    const valid: UpdateMode[] = ['realtime', 'gentle', 'entry', 'manual'];
+    return (stored && valid.includes(stored as UpdateMode)) ? stored as UpdateMode : 'realtime';
+  });
+  const updateCountRef = useRef(0);
 
   // 가상 친구 점수 (실시간 변동)
   const [vScores, setVScores] = useState<number[]>(() =>
@@ -65,7 +81,8 @@ export default function RankingPage() {
       if (!user) { setLoading(false); return; }
       const { data: profile } = await supabase
         .from('profiles').select('name').eq('id', user.id).single();
-      if (profile?.name) setUserName(profile.name);
+      const resolvedName = profile?.name || user.user_metadata?.name || '';
+      if (resolvedName) setUserName(resolvedName);
 
       const monday = getMondayISO();
       const { data: weekRec } = await supabase
@@ -78,43 +95,45 @@ export default function RankingPage() {
     })();
   }, []);
 
-  // 가상 친구 실시간 점수 증가 (15~40초 랜덤 간격)
+  const triggerUpdate = (gentle = false) => {
+    const picks = gentle ? 1 : (Math.random() < 0.5 ? 2 : 1);
+    const indices: number[] = [];
+    while (indices.length < picks) {
+      const idx = Math.floor(Math.random() * VIRTUAL_FRIENDS.length);
+      if (!indices.includes(idx)) indices.push(idx);
+    }
+    setVScores(prev => {
+      const next = [...prev];
+      indices.forEach(idx => {
+        const pts = gentle ? (1 + Math.floor(Math.random() * 3)) : (3 + Math.floor(Math.random() * 10));
+        next[idx] = prev[idx] + pts;
+        const id = ++toastIdRef.current;
+        const f = VIRTUAL_FRIENDS[idx];
+        setToasts(t => [...t, { id, emoji: f.emoji, name: f.name, pts }]);
+        setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000);
+      });
+      return next;
+    });
+    updateCountRef.current += 1;
+  };
+
+  // 자동 업데이트 타이머
   useEffect(() => {
+    if (updateMode === 'manual') return;
+    if (updateMode === 'entry') { triggerUpdate(); return; }
+
     let timer: ReturnType<typeof setTimeout>;
+    const isGentle = updateMode === 'gentle';
+    const delay = updateMode === 'realtime' ? () => 5000 + Math.random() * 7000
+                : isGentle                  ? () => 30000 + Math.random() * 10000
+                :                            () => 5000 + Math.random() * 7000;
 
     const scheduleNext = () => {
-      const delay = 5000 + Math.random() * 7000; // 5~12초
-      timer = setTimeout(() => {
-        // 동시에 1~2명 무작위 점수 증가
-        const picks = Math.random() < 0.5 ? 2 : 1;
-        const indices: number[] = [];
-        while (indices.length < picks) {
-          const idx = Math.floor(Math.random() * VIRTUAL_FRIENDS.length);
-          if (!indices.includes(idx)) indices.push(idx);
-        }
-
-        setVScores(prev => {
-          const next = [...prev];
-          indices.forEach(idx => {
-            const pts = 3 + Math.floor(Math.random() * 10); // +3~12P
-            next[idx] = prev[idx] + pts;
-
-            // 토스트 띄우기
-            const id = ++toastIdRef.current;
-            const f = VIRTUAL_FRIENDS[idx];
-            setToasts(t => [...t, { id, emoji: f.emoji, name: f.name, pts }]);
-            setTimeout(() => setToasts(t => t.filter(x => x.id !== id)), 3000);
-          });
-          return next;
-        });
-
-        scheduleNext();
-      }, delay);
+      timer = setTimeout(() => { triggerUpdate(isGentle); scheduleNext(); }, delay());
     };
-
     scheduleNext();
     return () => clearTimeout(timer);
-  }, []);
+  }, [updateMode]);
 
   const allPlayers = [
     { id: 'me', name: userName, flag: '🇰🇷', lang: '한국어 학습 중', emoji: '🎒', score: userScore, isMe: true },
@@ -166,8 +185,38 @@ export default function RankingPage() {
             <span style={{ marginLeft: 10, color: '#EF4444', fontWeight: 600 }}>⏰ 리셋까지 {daysLeft}일</span>
           </p>
         </div>
-        <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 12, padding: '8px 16px', fontSize: 12, color: '#92400E', fontWeight: 600 }}>
-          🔄 매주 월요일 점수 초기화
+        <div style={{ display: 'flex', gap: 8, alignItems: 'center', flexWrap: 'wrap' as const }}>
+          {/* 업데이트 설정 */}
+          <div style={{ position: 'relative' as const }}>
+            <button
+              onClick={() => setShowSettings(s => !s)}
+              style={{ background: '#F3F4F6', border: '1px solid #E5E7EB', borderRadius: 10, padding: '7px 13px', fontSize: 12, fontWeight: 600, color: '#374151', cursor: 'pointer', display: 'flex', alignItems: 'center', gap: 6 }}
+            >
+              ⚙️ {UPDATE_MODES.find(m => m.key === updateMode)?.label}
+            </button>
+            {showSettings && (
+              <div style={{ position: 'absolute' as const, right: 0, top: 38, background: '#fff', border: '1px solid #E5E7EB', borderRadius: 14, boxShadow: '0 8px 24px rgba(0,0,0,0.12)', zIndex: 100, width: 220, overflow: 'hidden' }}>
+                <div style={{ padding: '10px 14px', borderBottom: '1px solid #F3F4F6', fontSize: 11, fontWeight: 700, color: '#6B7280' }}>친구 점수 업데이트 빈도</div>
+                {UPDATE_MODES.map(m => (
+                  <button key={m.key} onClick={() => { setUpdateMode(m.key); localStorage.setItem('rankingUpdateMode', m.key); setShowSettings(false); updateCountRef.current = 0; }} style={{ width: '100%', textAlign: 'left' as const, padding: '10px 14px', border: 'none', background: updateMode === m.key ? '#F0FDFA' : '#fff', cursor: 'pointer', display: 'flex', flexDirection: 'column' as const, gap: 1 }}>
+                    <span style={{ fontSize: 13, fontWeight: 600, color: updateMode === m.key ? '#0D9488' : '#1F2937' }}>{m.label}</span>
+                    <span style={{ fontSize: 11, color: '#9CA3AF' }}>{m.desc}</span>
+                  </button>
+                ))}
+                {(updateMode === 'manual' || updateMode === 'entry') && (
+                  <div style={{ padding: '8px 14px', borderTop: '1px solid #F3F4F6' }}>
+                    <button onClick={() => { triggerUpdate(); setShowSettings(false); }} style={{ width: '100%', padding: '8px', borderRadius: 8, border: 'none', background: '#14B8A6', color: '#fff', fontWeight: 700, fontSize: 13, cursor: 'pointer' }}>🔄 지금 갱신</button>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+          {(updateMode === 'manual' || updateMode === 'entry') && (
+            <button onClick={() => triggerUpdate()} style={{ background: '#14B8A6', border: 'none', borderRadius: 10, padding: '7px 13px', fontSize: 12, fontWeight: 700, color: '#fff', cursor: 'pointer' }}>🔄 갱신</button>
+          )}
+          <div style={{ background: '#FEF3C7', border: '1px solid #FCD34D', borderRadius: 12, padding: '8px 16px', fontSize: 12, color: '#92400E', fontWeight: 600 }}>
+            🔄 매주 월요일 점수 초기화
+          </div>
         </div>
       </div>
 
@@ -182,7 +231,6 @@ export default function RankingPage() {
           <span style={{ fontSize: 36 }}>🎒</span>
           <div>
             <div style={{ fontSize: 18, fontWeight: 'bold', color: '#fff' }}>{userName}님</div>
-            <div style={{ fontSize: 12, color: '#94A3B8', marginTop: 2 }}>🇰🇷 한국어 학습 중</div>
           </div>
         </div>
         <div style={{ display: 'flex', alignItems: 'center', gap: 28 }}>
