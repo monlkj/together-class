@@ -51,31 +51,16 @@ export default function SignUpPage() {
     setLoading(true);
     setError('');
 
-    const { data, error: signUpError } = await supabase.auth.signUp({
-      email,
-      password,
-      options: { data: { name, role, native_language: 'ko' } },
+    const res = await fetch('/api/signup', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ name, email, password, role, school, grade, classNum, studentNum }),
     });
-    if (signUpError) {
-      setError(signUpError.message);
+    const json = await res.json();
+    if (!res.ok) {
+      setError(json.error ?? '회원가입 중 오류가 발생했습니다.');
       setLoading(false);
       return;
-    }
-
-    if (data.user) {
-      const profileData: Record<string, unknown> = {
-        id: data.user.id,
-        name,
-        role,
-        native_language: 'ko',
-        school,
-        grade,
-        class_num: classNum,
-      };
-      if (role === 'student') {
-        profileData.student_number = studentNum;
-      }
-      await supabase.from('profiles').upsert(profileData);
     }
 
     setDone(true);
@@ -89,7 +74,7 @@ export default function SignUpPage() {
           <span style={{ fontSize: '48px' }}>✅</span>
           <h2 style={{ color: '#14B8A6' }}>가입 완료!</h2>
           <p style={{ color: '#6B7280', fontSize: '14px' }}>
-            이메일 인증 메일을 보냈습니다. 확인 후 로그인해주세요.
+            계정이 생성되었습니다. 바로 로그인하세요!
           </p>
           <a href="/login" style={styles.loginLink}>로그인 화면으로 →</a>
         </div>
