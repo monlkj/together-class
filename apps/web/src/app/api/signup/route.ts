@@ -8,19 +8,39 @@ const supabaseAdmin = createClient(
 
 export async function POST(req: Request) {
   try {
-    const { name, email, password, role, school, grade, classNum, studentNum } = await req.json();
+    const body = await req.json();
+    const { name, email, password, role, school, grade, classNum, studentNum } = body;
 
-    const { data, error } = await supabaseAdmin.auth.admin.createUser({
-      email,
-      password,
-      email_confirm: true,
-      user_metadata: { name, role, native_language: 'ko' },
+    // Supabase Admin REST API 직접 호출 (supabase-js 클라이언트 우회)
+    const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users`;
+    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+
+    const createRes = await fetch(url, {
+      method: 'POST',
+      headers: {
+        'apikey': serviceKey,
+        'Authorization': `Bearer ${serviceKey}`,
+        'Content-Type': 'application/json',
+      },
+      body: JSON.stringify({
+        email,
+        password,
+        email_confirm: true,
+        user_metadata: { role, native_language: 'ko' },
+      }),
     });
 
-    if (error) return NextResponse.json({ error: error.message }, { status: 400 });
+    if (!createRes.ok) {
+      const err = await createRes.json();
+      return NextResponse.json({ error: err.msg ?? err.message ?? '가입 실패' }, { status: 400 });
+    }
 
+    const userData = await createRes.json();
+    const userId = userData.id;
+
+    // profiles 테이블에 저장
     const profileData: Record<string, unknown> = {
-      id: data.user.id,
+      id: userId,
       name,
       role,
       native_language: 'ko',
