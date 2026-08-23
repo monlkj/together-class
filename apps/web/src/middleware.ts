@@ -1,24 +1,21 @@
-import { createMiddlewareClient } from '@supabase/auth-helpers-nextjs';
 import { NextResponse } from 'next/server';
 import type { NextRequest } from 'next/server';
 
-export async function middleware(req: NextRequest) {
-  const res = NextResponse.next();
-  const supabase = createMiddlewareClient({ req, res });
-
-  const { data: { session } } = await supabase.auth.getSession();
-
+export function middleware(req: NextRequest) {
   const isAuthPage = req.nextUrl.pathname.startsWith('/login') || req.nextUrl.pathname.startsWith('/signup');
 
-  if (!session && !isAuthPage) {
+  // Supabase 세션 쿠키 확인 (sb-*-auth-token 형태)
+  const hasSession = [...req.cookies.getAll()].some(c => c.name.includes('-auth-token'));
+
+  if (!hasSession && !isAuthPage) {
     return NextResponse.redirect(new URL('/login', req.url));
   }
 
-  if (session && isAuthPage) {
+  if (hasSession && isAuthPage) {
     return NextResponse.redirect(new URL('/', req.url));
   }
 
-  return res;
+  return NextResponse.next();
 }
 
 export const config = {
