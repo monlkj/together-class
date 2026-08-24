@@ -6,14 +6,18 @@ const supabaseAdmin = createClient(
   process.env.SUPABASE_SERVICE_ROLE_KEY!,
 );
 
+function safeHeader(value: string): string {
+  // ISO-8859-1 범위(0-255)를 벗어난 문자를 제거
+  return value.replace(/[^\x00-\xFF]/g, '');
+}
+
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { name, email, password, role, school, grade, classNum, studentNum } = body;
 
-    // Supabase Admin REST API 직접 호출 (supabase-js 클라이언트 우회)
     const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users`;
-    const serviceKey = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+    const serviceKey = safeHeader(process.env.SUPABASE_SERVICE_ROLE_KEY ?? '');
 
     const createRes = await fetch(url, {
       method: 'POST',
@@ -38,7 +42,6 @@ export async function POST(req: Request) {
     const userData = await createRes.json();
     const userId = userData.id;
 
-    // profiles 테이블에 저장
     const profileData: Record<string, unknown> = {
       id: userId,
       name,
@@ -54,6 +57,7 @@ export async function POST(req: Request) {
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    const msg = String(e);
+    return NextResponse.json({ error: msg }, { status: 500 });
   }
 }
