@@ -16,7 +16,7 @@ export default function LoginPage() {
     setError('');
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
-      setError('이메일 또는 비밀번호가 틀렸습니다.');
+      setError(`로그인 실패: ${error.message}`);
     } else {
       router.push('/');
     }
