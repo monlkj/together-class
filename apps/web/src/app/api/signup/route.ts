@@ -1,31 +1,23 @@
-import { createClient } from '@supabase/supabase-js';
 import { NextResponse } from 'next/server';
 
-const supabaseAdmin = createClient(
-  process.env.NEXT_PUBLIC_SUPABASE_URL!,
-  process.env.SUPABASE_SERVICE_ROLE_KEY!,
-);
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
 
-function safeHeader(value: string): string {
-  // ISO-8859-1 범위(0-255)를 벗어난 문자를 제거
-  return value.replace(/[^\x00-\xFF]/g, '');
-}
+const headers = {
+  'apikey': SERVICE_KEY,
+  'Authorization': `Bearer ${SERVICE_KEY}`,
+  'Content-Type': 'application/json',
+};
 
 export async function POST(req: Request) {
   try {
     const body = await req.json();
     const { name, email, password, role, school, grade, classNum, studentNum } = body;
 
-    const url = `${process.env.NEXT_PUBLIC_SUPABASE_URL}/auth/v1/admin/users`;
-    const serviceKey = safeHeader(process.env.SUPABASE_SERVICE_ROLE_KEY ?? '');
-
-    const createRes = await fetch(url, {
+    // 1. Supabase Auth 사용자 생성
+    const createRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
       method: 'POST',
-      headers: {
-        'apikey': serviceKey,
-        'Authorization': `Bearer ${serviceKey}`,
-        'Content-Type': 'application/json',
-      },
+      headers,
       body: JSON.stringify({
         email,
         password,
@@ -39,9 +31,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: err.msg ?? err.message ?? '가입 실패' }, { status: 400 });
     }
 
-    const userData = await createRes.json();
-    const userId = userData.id;
+    const { id: userId } = await createRes.json();
 
+    // 2. profiles 테이블에 저장 (PostgREST)
     const profileData: Record<string, unknown> = {
       id: userId,
       name,
@@ -53,11 +45,14 @@ export async function POST(req: Request) {
     };
     if (role === 'student') profileData.student_number = studentNum;
 
-    await supabaseAdmin.from('profiles').upsert(profileData);
+    await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
+      method: 'POST',
+      headers: { ...headers, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      body: JSON.stringify(profileData),
+    });
 
     return NextResponse.json({ ok: true });
   } catch (e) {
-    const msg = String(e);
-    return NextResponse.json({ error: msg }, { status: 500 });
+    return NextResponse.json({ error: String(e) }, { status: 500 });
   }
 }
