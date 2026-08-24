@@ -1,23 +1,35 @@
 import { NextResponse } from 'next/server';
 
-const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL!;
-const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY!;
+const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
+const SERVICE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY ?? '';
 
-const headers = {
-  'apikey': SERVICE_KEY,
-  'Authorization': `Bearer ${SERVICE_KEY}`,
-  'Content-Type': 'application/json',
-};
+function findNonAscii(str: string): { index: number; value: number } | null {
+  for (let i = 0; i < str.length; i++) {
+    const code = str.charCodeAt(i);
+    if (code > 255) return { index: i, value: code };
+  }
+  return null;
+}
 
 export async function POST(req: Request) {
+  // 진단: 환경변수 체크
+  const urlIssue = findNonAscii(SUPABASE_URL);
+  const keyIssue = findNonAscii(SERVICE_KEY);
+  if (urlIssue) return NextResponse.json({ error: `URL에 비ASCII 문자: index ${urlIssue.index}, value ${urlIssue.value}` }, { status: 500 });
+  if (keyIssue) return NextResponse.json({ error: `SERVICE_KEY에 비ASCII 문자: index ${keyIssue.index}, value ${keyIssue.value}` }, { status: 500 });
+  if (!SERVICE_KEY) return NextResponse.json({ error: 'SUPABASE_SERVICE_ROLE_KEY가 설정되지 않았습니다' }, { status: 500 });
+
   try {
     const body = await req.json();
     const { name, email, password, role, school, grade, classNum, studentNum } = body;
 
-    // 1. Supabase Auth 사용자 생성
     const createRes = await fetch(`${SUPABASE_URL}/auth/v1/admin/users`, {
       method: 'POST',
-      headers,
+      headers: {
+        'apikey': SERVICE_KEY,
+        'Authorization': `Bearer ${SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+      },
       body: JSON.stringify({
         email,
         password,
@@ -33,21 +45,19 @@ export async function POST(req: Request) {
 
     const { id: userId } = await createRes.json();
 
-    // 2. profiles 테이블에 저장 (PostgREST)
     const profileData: Record<string, unknown> = {
-      id: userId,
-      name,
-      role,
-      native_language: 'ko',
-      school,
-      grade,
-      class_num: classNum,
+      id: userId, name, role, native_language: 'ko', school, grade, class_num: classNum,
     };
     if (role === 'student') profileData.student_number = studentNum;
 
     await fetch(`${SUPABASE_URL}/rest/v1/profiles`, {
       method: 'POST',
-      headers: { ...headers, 'Prefer': 'resolution=merge-duplicates,return=minimal' },
+      headers: {
+        'apikey': SERVICE_KEY,
+        'Authorization': `Bearer ${SERVICE_KEY}`,
+        'Content-Type': 'application/json',
+        'Prefer': 'resolution=merge-duplicates,return=minimal',
+      },
       body: JSON.stringify(profileData),
     });
 
