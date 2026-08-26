@@ -14,20 +14,21 @@ export default function LoginPage() {
   const handleLogin = async () => {
     setLoading(true);
     setError('');
-    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
-    for (let i = 0; i < anonKey.length; i++) {
-      if (anonKey.charCodeAt(i) > 255) {
-        setError(`ANON_KEY 오류: index ${i}, value ${anonKey.charCodeAt(i)}`);
-        setLoading(false);
-        return;
-      }
+
+    const res = await fetch('/api/login', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ email, password }),
+    });
+    const json = await res.json();
+    if (!res.ok) {
+      setError(json.error ?? '로그인 실패');
+      setLoading(false);
+      return;
     }
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    if (error) {
-      setError(`로그인 실패: ${error.message}`);
-    } else {
-      router.push('/');
-    }
+
+    await supabase.auth.setSession({ access_token: json.access_token, refresh_token: json.refresh_token });
+    router.push('/');
     setLoading(false);
   };
 
