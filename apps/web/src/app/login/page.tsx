@@ -27,8 +27,10 @@ export default function LoginPage() {
       return;
     }
 
-    await supabase.auth.setSession({ access_token: json.access_token, refresh_token: json.refresh_token });
-    router.push('/');
+    try {
+      await supabase.auth.setSession({ access_token: json.access_token, refresh_token: json.refresh_token });
+    } catch (_) {}
+    window.location.href = '/';
     setLoading(false);
   };
 
