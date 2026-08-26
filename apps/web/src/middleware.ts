@@ -5,7 +5,7 @@ export function middleware(req: NextRequest) {
   const isAuthPage = req.nextUrl.pathname.startsWith('/login') || req.nextUrl.pathname.startsWith('/signup');
 
   // Supabase 세션 쿠키 확인 (sb-*-auth-token 형태)
-  const hasSession = [...req.cookies.getAll()].some(c => c.name.includes('-auth-token'));
+  const hasSession = [...req.cookies.getAll()].some(c => c.name.includes('-auth-token') || c.name === 'sb-logged-in');
 
   if (!hasSession && !isAuthPage) {
     return NextResponse.redirect(new URL('/login', req.url));

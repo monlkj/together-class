@@ -27,7 +27,9 @@ export async function POST(req: Request) {
       return NextResponse.json({ error: data.error_description ?? data.msg ?? '로그인 실패' }, { status: 401 });
     }
 
-    return NextResponse.json({ access_token: data.access_token, refresh_token: data.refresh_token });
+    const response = NextResponse.json({ access_token: data.access_token, refresh_token: data.refresh_token });
+    response.cookies.set('sb-logged-in', 'true', { path: '/', maxAge: 60 * 60 * 24 * 7, httpOnly: false });
+    return response;
   } catch (e) {
     return NextResponse.json({ error: String(e) }, { status: 500 });
   }
