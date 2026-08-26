@@ -14,6 +14,14 @@ export default function LoginPage() {
   const handleLogin = async () => {
     setLoading(true);
     setError('');
+    const anonKey = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
+    for (let i = 0; i < anonKey.length; i++) {
+      if (anonKey.charCodeAt(i) > 255) {
+        setError(`ANON_KEY 오류: index ${i}, value ${anonKey.charCodeAt(i)}`);
+        setLoading(false);
+        return;
+      }
+    }
     const { error } = await supabase.auth.signInWithPassword({ email, password });
     if (error) {
       setError(`로그인 실패: ${error.message}`);
