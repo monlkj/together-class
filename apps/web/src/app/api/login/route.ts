@@ -7,12 +7,6 @@ export async function POST(req: Request) {
   try {
     const { email, password } = await req.json();
 
-    for (let i = 0; i < ANON_KEY.length; i++) {
-      if (ANON_KEY.charCodeAt(i) > 255) {
-        return NextResponse.json({ error: `ANON_KEY 서버 오류: index ${i}, value ${ANON_KEY.charCodeAt(i)}` }, { status: 500 });
-      }
-    }
-
     const res = await fetch(`${SUPABASE_URL}/auth/v1/token?grant_type=password`, {
       method: 'POST',
       headers: {
