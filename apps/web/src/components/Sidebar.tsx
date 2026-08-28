@@ -49,7 +49,8 @@ export const Sidebar: React.FC<{ isOpen?: boolean; onClose?: () => void }> = ({ 
 
   const handleLogout = async () => {
     await supabase.auth.signOut();
-    router.push('/login');
+    document.cookie = 'sb-logged-in=; path=/; expires=Thu, 01 Jan 1970 00:00:00 UTC';
+    window.location.href = '/login';
   };
 
   const handleLeaveClass = async (teacherId: string, className: string) => {
