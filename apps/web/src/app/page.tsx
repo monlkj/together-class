@@ -176,7 +176,7 @@ export default function DashboardPage() {
         gap: 16,
         position: 'relative' as const,
         overflow: 'hidden',
-      }}>
+      }} className="hero-banner">
         <div style={{ position: 'absolute', right: 120, top: -10, fontSize: 100, opacity: 0.08 }}>🎓</div>
         <div>
           <p style={{ margin: '0 0 4px', fontSize: 13, color: 'rgba(255,255,255,0.8)' }}>
@@ -210,7 +210,7 @@ export default function DashboardPage() {
       </div>
 
       {/* 통계 3칸 */}
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
+      <div className="stats-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 14, marginBottom: 24 }}>
         {[
           { label: '누적 점수', value: totalCount, unit: 'P', color: '#14B8A6', bg: '#F0FDFA' },
           { label: '이번 주 점수', value: weekCount, unit: 'P', color: '#F59E0B', bg: '#FFFBEB' },
@@ -233,7 +233,7 @@ export default function DashboardPage() {
 
       {/* 피처 카드 3열 그리드 */}
       <div style={{ fontSize: 15, fontWeight: 'bold', color: '#1F2937', marginBottom: 14 }}>🛠️ 학습 도구</div>
-      <div style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
+      <div className="feature-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(3, 1fr)', gap: 16, marginBottom: 24 }}>
         {featureCards.map((card) => (
           <Link
             key={card.title}
@@ -292,7 +292,7 @@ export default function DashboardPage() {
       </div>
 
       {/* 하단 2열: 주간 차트 + 최근 활동 */}
-      <div style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: 16 }}>
+      <div className="bottom-grid" style={{ display: 'grid', gridTemplateColumns: '1fr 1.3fr', gap: 16 }}>
 
         {/* 주간 학습 활동 */}
         <div style={{ backgroundColor: '#fff', borderRadius: 16, padding: '20px 22px', boxShadow: '0 2px 8px rgba(0,0,0,0.05)' }}>
