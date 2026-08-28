@@ -35,7 +35,7 @@ export default function LoginPage() {
   };
 
   return (
-    <div style={styles.container}>
+    <div style={styles.container} className="auth-container">
       <div style={styles.card} className="auth-card">
         <div style={styles.leftPanel} className="auth-left-panel">
           <span style={{ fontSize: '72px' }}>🤖</span>
