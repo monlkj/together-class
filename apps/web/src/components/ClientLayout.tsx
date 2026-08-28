@@ -285,6 +285,7 @@ export const ClientLayout: React.FC<{ children: React.ReactNode }> = ({ children
   const pathname = usePathname();
   const isAuthPage = AUTH_PAGES.includes(pathname);
   const [darkMode, setDarkMode] = useState(false);
+  const [sidebarOpen, setSidebarOpen] = useState(false);
 
   useEffect(() => {
     const saved = localStorage.getItem('darkMode');
@@ -302,8 +303,19 @@ export const ClientLayout: React.FC<{ children: React.ReactNode }> = ({ children
 
   return (
     <div style={{ display: 'flex' }}>
-      <Sidebar />
-      <main style={{ marginLeft: '260px', flex: 1, padding: '32px', minHeight: '100vh', boxSizing: 'border-box' }}>
+      {/* 모바일 햄버거 버튼 */}
+      <button className="hamburger-btn" onClick={() => setSidebarOpen(true)} aria-label="메뉴 열기">
+        ☰
+      </button>
+
+      {/* 모바일 오버레이 */}
+      <div
+        className={`sidebar-overlay${sidebarOpen ? ' overlay-open' : ''}`}
+        onClick={() => setSidebarOpen(false)}
+      />
+
+      <Sidebar isOpen={sidebarOpen} onClose={() => setSidebarOpen(false)} />
+      <main className="app-main" style={{ marginLeft: '260px', flex: 1, padding: '32px', minHeight: '100vh', boxSizing: 'border-box' }}>
         {children}
       </main>
 

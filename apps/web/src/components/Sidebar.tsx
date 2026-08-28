@@ -7,7 +7,7 @@ import { supabase } from '../lib/supabase';
 
 interface ClassInfo { teacher_id: string; class_name: string; }
 
-export const Sidebar: React.FC = () => {
+export const Sidebar: React.FC<{ isOpen?: boolean; onClose?: () => void }> = ({ isOpen = false, onClose }) => {
   const pathname = usePathname();
   const router = useRouter();
   const [userName, setUserName] = useState('');
@@ -95,7 +95,23 @@ export const Sidebar: React.FC = () => {
   if (pathname === '/login' || pathname === '/signup') return null;
 
   return (
-    <aside style={styles.sidebar}>
+    <aside className={`app-sidebar${isOpen ? ' sidebar-open' : ''}`} style={styles.sidebar}>
+      {/* 모바일 닫기 버튼 */}
+      {onClose && (
+        <button
+          onClick={onClose}
+          aria-label="메뉴 닫기"
+          style={{
+            display: 'none',
+            position: 'absolute', top: 12, right: 12,
+            background: 'none', border: 'none',
+            fontSize: 20, cursor: 'pointer', color: '#6B7280',
+            padding: '4px 8px', borderRadius: 8,
+            // CSS will override display via media query in globals.css
+          }}
+          className="sidebar-close-btn"
+        >✕</button>
+      )}
       <Link href="/" style={{ textDecoration: 'none' }}>
         <div style={styles.brand}>
           <img

@@ -36,8 +36,8 @@ export default function LoginPage() {
 
   return (
     <div style={styles.container}>
-      <div style={styles.card}>
-        <div style={styles.leftPanel}>
+      <div style={styles.card} className="auth-card">
+        <div style={styles.leftPanel} className="auth-left-panel">
           <span style={{ fontSize: '72px' }}>🤖</span>
           <h1 style={{ margin: '16px 0 8px 0', fontSize: '28px', color: '#FFF' }}>다함께 교실</h1>
           <p style={{ color: '#CCFBF1', textAlign: 'center', fontSize: '14px', lineHeight: '1.6' }}>
@@ -45,7 +45,7 @@ export default function LoginPage() {
           </p>
         </div>
 
-        <div style={styles.rightPanel}>
+        <div style={styles.rightPanel} className="auth-right-panel">
           <h2 style={{ margin: 0, fontSize: '22px', color: '#1F2937' }}>로그인 (Log in)</h2>
           <p style={{ fontSize: '13px', color: '#6B7280', marginBottom: '24px' }}>학교 계정 이메일로 로그인하세요.</p>
 
