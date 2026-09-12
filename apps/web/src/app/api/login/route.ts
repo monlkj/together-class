@@ -4,6 +4,13 @@ const SUPABASE_URL = process.env.NEXT_PUBLIC_SUPABASE_URL ?? '';
 const ANON_KEY = process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY ?? '';
 
 export async function POST(req: Request) {
+  if (!SUPABASE_URL) {
+    return NextResponse.json({ error: 'SUPABASE_URL 환경변수가 없습니다' }, { status: 500 });
+  }
+  if (!ANON_KEY) {
+    return NextResponse.json({ error: 'SUPABASE_ANON_KEY 환경변수가 없습니다' }, { status: 500 });
+  }
+
   try {
     const { email, password } = await req.json();
 
