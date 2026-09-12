@@ -163,6 +163,8 @@ export default function PersonaPage() {
   const [input, setInput] = useState('');
   const [loading, setLoading] = useState(false);
   const chatEndRef = useRef<HTMLDivElement>(null);
+  const messagesRef = useRef(messages);
+  useEffect(() => { messagesRef.current = messages; }, [messages]);
 
   useEffect(() => {
     (async () => {
@@ -194,15 +196,6 @@ export default function PersonaPage() {
     setLoading(false);
   };
 
-  const getResponse = (char: typeof CHARACTERS[0], msg: string): string => {
-    const lower = msg.toLowerCase();
-    for (const r of char.responses) {
-      if (r.keywords.length === 0) continue;
-      if (r.keywords.some(k => lower.includes(k))) return r.text;
-    }
-    return char.responses[char.responses.length - 1].text;
-  };
-
   const handleAsk = async (text?: string) => {
     const msg = text ?? input;
     if (!msg.trim() || loading || !selected) return;
@@ -210,19 +203,51 @@ export default function PersonaPage() {
     setLoading(true);
 
     const userNative = await translateToNative(msg, nativeLang);
-    setMessages(prev => [...prev, { id: Date.now().toString(), sender: 'user', textKo: msg, textNative: userNative }]);
+    const newUser = { id: Date.now().toString(), sender: 'user' as const, textKo: msg, textNative: userNative };
+    const updatedMessages = [...messagesRef.current, newUser];
+    setMessages(updatedMessages);
 
-    await new Promise(r => setTimeout(r, 700));
+    try {
+      const systemPrompt = `너는 ${selected.name}이야. ${selected.desc}
+시대: ${selected.era}
+교과서 출처: ${selected.source}
 
-    const replyKo = getResponse(selected, msg);
-    const replyNative = await translateToNative(replyKo, nativeLang);
-    setMessages(prev => [...prev, {
-      id: (Date.now() + 1).toString(),
-      sender: 'persona',
-      textKo: replyKo,
-      textNative: replyNative,
-      sources: [selected.source],
-    }]);
+규칙:
+- 1인칭으로 그 시대 인물처럼 대화해
+- 초등학생이 이해할 수 있는 쉬운 말로 설명해
+- 역사적 사실을 바탕으로 감정을 담아 답해
+- 마지막에 학생에게 생각을 묻는 질문을 꼭 해
+- 200자 이내로 답해`;
+
+      const history = updatedMessages.map(m => ({
+        role: m.sender === 'user' ? 'user' : 'model',
+        text: m.textKo,
+      }));
+
+      const res = await fetch('/api/ai-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemPrompt, messages: history }),
+      });
+      const json = await res.json();
+      const replyKo = json.text ?? '잠시 후 다시 시도해줘!';
+      const replyNative = await translateToNative(replyKo, nativeLang);
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        sender: 'persona',
+        textKo: replyKo,
+        textNative: replyNative,
+        sources: [selected.source],
+      }]);
+    } catch {
+      setMessages(prev => [...prev, {
+        id: (Date.now() + 1).toString(),
+        sender: 'persona',
+        textKo: '연결 오류가 발생했습니다. 다시 시도해주세요.',
+        textNative: '연결 오류가 발생했습니다. 다시 시도해주세요.',
+        sources: [],
+      }]);
+    }
     setLoading(false);
   };
 

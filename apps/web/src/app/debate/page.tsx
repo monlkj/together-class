@@ -100,15 +100,6 @@ const TOPICS = [
   },
 ];
 
-function getAiResponse(topic: typeof TOPICS[0], userMessage: string): string {
-  const lower = userMessage.toLowerCase();
-  for (const r of topic.responses) {
-    if (r.keywords.length === 0) continue;
-    if (r.keywords.some(k => lower.includes(k))) return r.text;
-  }
-  return topic.responses[topic.responses.length - 1].text;
-}
-
 interface Message {
   id: string;
   sender: 'user' | 'ai';
@@ -202,14 +193,35 @@ export default function DebatePage() {
 
     const userNative = await translateToNative(msg, nativeLang);
     const newUser: Message = { id: Date.now().toString(), sender: 'user', textKo: msg, textNative: userNative };
-    setMessages(prev => [...prev, newUser]);
+    const updatedMessages = [...messagesRef.current, newUser];
+    setMessages(updatedMessages);
 
-    await new Promise(r => setTimeout(r, 800));
+    try {
+      const systemPrompt = `너는 초등학생 AI 토론 친구 민준이야. 오늘 토론 주제는 "${selectedTopic.title}"이고, 핵심 질문은 "${selectedTopic.question}"이야.
+규칙:
+- 초등학생 눈높이에 맞는 쉽고 친근한 말투로 대화해
+- 학생의 의견을 존중하되 반론이나 새로운 관점도 제시해
+- 마지막에는 반드시 생각을 더 발전시킬 수 있는 질문을 해
+- 150자 이내로 간결하게 답해
+- 이모지를 1~2개 자연스럽게 써도 좋아`;
 
-    const aiKo = getAiResponse(selectedTopic, msg);
-    const aiNative = await translateToNative(aiKo, nativeLang);
-    const newAi: Message = { id: (Date.now() + 1).toString(), sender: 'ai', textKo: aiKo, textNative: aiNative };
-    setMessages(prev => [...prev, newAi]);
+      const history = updatedMessages.map(m => ({
+        role: m.sender === 'user' ? 'user' : 'model',
+        text: m.textKo,
+      }));
+
+      const res = await fetch('/api/ai-chat', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ systemPrompt, messages: history }),
+      });
+      const json = await res.json();
+      const aiKo = json.text ?? '잠시 후 다시 시도해줘!';
+      const aiNative = await translateToNative(aiKo, nativeLang);
+      setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', textKo: aiKo, textNative: aiNative }]);
+    } catch {
+      setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', textKo: '연결 오류가 발생했어. 다시 시도해줘!', textNative: '연결 오류가 발생했어. 다시 시도해줘!' }]);
+    }
     setLoading(false);
   };
 
@@ -227,7 +239,7 @@ export default function DebatePage() {
         /* 주제 선택 화면 — 언어선택 없음 */
         <div>
           <p style={{ margin: '0 0 16px 0', fontSize: '14px', fontWeight: 'bold', color: '#374151' }}>토론 주제를 선택하세요</p>
-          <div style={styles.topicGrid}>
+          <div style={styles.topicGrid} className="debate-topic-grid">
             {TOPICS.map(topic => (
               <button
                 key={topic.id}
@@ -244,7 +256,7 @@ export default function DebatePage() {
         </div>
       ) : (
         /* 채팅 화면 */
-        <div style={styles.chatLayout}>
+        <div style={styles.chatLayout} className="debate-chat-layout">
           {/* 채팅 패널 */}
           <div style={styles.chatPanel}>
             {/* 주제 배너 */}
