@@ -32,6 +32,7 @@ export async function POST(req: Request) {
     response.cookies.set('sb-logged-in', 'true', { path: '/', maxAge: 60 * 60 * 24 * 7, httpOnly: false });
     return response;
   } catch (e) {
-    return NextResponse.json({ error: String(e) }, { status: 500 });
+    const msg = e instanceof Error ? e.message : String(e);
+    return NextResponse.json({ error: `연결 실패: ${msg} | URL: ${SUPABASE_URL.slice(0, 30)}...` }, { status: 500 });
   }
 }
