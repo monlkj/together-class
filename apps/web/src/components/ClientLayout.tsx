@@ -286,6 +286,8 @@ export const ClientLayout: React.FC<{ children: React.ReactNode }> = ({ children
   const isAuthPage = AUTH_PAGES.includes(pathname);
   const [darkMode, setDarkMode] = useState(false);
   const [sidebarOpen, setSidebarOpen] = useState(false);
+  const [bgmPlaying, setBgmPlaying] = useState(false);
+  const audioRef = useRef<HTMLAudioElement>(null);
 
   useEffect(() => {
     const saved = localStorage.getItem('darkMode');
@@ -321,6 +323,42 @@ export const ClientLayout: React.FC<{ children: React.ReactNode }> = ({ children
 
       {/* 학생용 과제 받은편지함 */}
       <HomeworkInbox />
+
+      {/* BGM 토글 */}
+      <audio ref={audioRef} src="/bgm.mp3" loop />
+      <button
+        onClick={() => {
+          if (!audioRef.current) return;
+          if (bgmPlaying) {
+            audioRef.current.pause();
+            setBgmPlaying(false);
+          } else {
+            audioRef.current.play().catch(() => {});
+            setBgmPlaying(true);
+          }
+        }}
+        title={bgmPlaying ? '음악 끄기' : '음악 켜기'}
+        style={{
+          position: 'fixed',
+          top: 16,
+          right: 132,
+          zIndex: 9999,
+          width: 40,
+          height: 40,
+          borderRadius: 12,
+          border: 'none',
+          cursor: 'pointer',
+          backgroundColor: bgmPlaying ? '#14B8A6' : '#F3F4F6',
+          display: 'flex',
+          alignItems: 'center',
+          justifyContent: 'center',
+          fontSize: 18,
+          boxShadow: '0 2px 8px rgba(0,0,0,0.1)',
+          transition: 'background 0.2s',
+        }}
+      >
+        {bgmPlaying ? '🎵' : '🔇'}
+      </button>
 
       {/* 다크모드 토글 — 오른쪽 위 고정 */}
       <button
