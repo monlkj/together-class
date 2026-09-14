@@ -5,6 +5,83 @@ import Link from 'next/link';
 import { SUPPORTED_LANGUAGES, LanguageCode } from '@dahamkke/shared';
 import { supabase } from '../lib/supabase';
 
+const STUDY_QUOTES = [
+  { text: '배움에는 왕도가 없다.', author: '유클리드' },
+  { text: '아는 것이 힘이다.', author: '프랜시스 베이컨' },
+  { text: '교육은 삶을 위한 준비가 아니라, 교육 자체가 삶이다.', author: '존 듀이' },
+  { text: '천 리 길도 한 걸음부터.', author: '노자' },
+  { text: '실패는 성공의 어머니다.', author: '토마스 에디슨' },
+  { text: '배우고 때때로 익히면 또한 기쁘지 아니한가.', author: '공자' },
+  { text: '오늘 할 수 있는 일에 최선을 다하라.', author: '에이브러햄 링컨' },
+  { text: '상상력이 지식보다 중요하다.', author: '알베르트 아인슈타인' },
+  { text: '나는 실패한 것이 아니라, 작동하지 않는 방법 1만 가지를 발견했을 뿐이다.', author: '토마스 에디슨' },
+  { text: '지식에 투자하는 것이 가장 이익이 높다.', author: '벤자민 프랭클린' },
+  { text: '배움은 보물이며, 그것은 주인을 따라 어디든 간다.', author: '중국 속담' },
+  { text: '어제보다 나은 오늘의 나를 만드는 것이 진정한 성공이다.', author: '윌리엄 포크너' },
+  { text: '인내는 쓰지만 그 열매는 달다.', author: '장 자크 루소' },
+  { text: '열심히 하는 것은 재능을 이길 수 있다. 재능이 열심히 하지 않는다면.', author: '팀 노팅엄' },
+  { text: '독서는 마음의 양식이다.', author: '키케로' },
+  { text: '모르는 것은 부끄러운 것이 아니다. 배우려 하지 않는 것이 부끄럽다.', author: '벤자민 프랭클린' },
+  { text: '성공은 준비와 기회가 만나는 지점이다.', author: '오프라 윈프리' },
+  { text: '지금 이 순간이 앞으로 남은 생의 가장 젊은 날이다.', author: '루이스 어드릭' },
+  { text: '작은 일에도 최선을 다하면 큰 일도 해낼 수 있다.', author: '피타고라스' },
+  { text: '포기하지 않는 자만이 승리한다.', author: '윈스턴 처칠' },
+  { text: '한 번도 실수하지 않은 사람은 한 번도 도전하지 않은 사람이다.', author: '알베르트 아인슈타인' },
+  { text: '교육의 목적은 빈 그릇을 채우는 것이 아니라 불을 피우는 것이다.', author: '윌리엄 버틀러 예이츠' },
+  { text: '오늘의 노력이 내일의 결과를 만든다.', author: '박경리' },
+  { text: '꿈을 이루고자 하는 용기만 있다면, 모든 꿈은 이루어질 수 있다.', author: '월트 디즈니' },
+  { text: '시작이 반이다.', author: '아리스토텔레스' },
+  { text: '우리가 아는 가장 현명한 사람들은 가장 많이 배우려는 사람들이다.', author: '소크라테스' },
+  { text: '독서 없이는 생각이 멈춘다.', author: '데카르트' },
+  { text: '천재는 1%의 영감과 99%의 노력으로 만들어진다.', author: '토마스 에디슨' },
+  { text: '자신을 믿어라. 당신의 능력을 믿어라.', author: '노먼 빈센트 필' },
+  { text: '오늘 걷지 않으면 내일 뛰어야 한다.', author: '작자 미상' },
+  { text: '인생에서 가장 좋은 투자는 자기 자신에 대한 투자다.', author: '워런 버핏' },
+  { text: '배운다는 것은 끊임없이 나를 새롭게 하는 것이다.', author: '율곡 이이' },
+  { text: '성장은 편안함 밖에서 일어난다.', author: '조이 브라운' },
+  { text: '문제가 없는 사람은 없다. 다만 해결하는 사람과 못 하는 사람이 있을 뿐.', author: '나폴레온 힐' },
+  { text: '지식이 없는 열정은 불 없는 빛과 같다.', author: '알베르트 아인슈타인' },
+  { text: '어려움은 기회의 다른 이름이다.', author: '알버트 아인슈타인' },
+  { text: '내가 멀리 볼 수 있었던 것은 거인들의 어깨 위에 서 있었기 때문이다.', author: '아이작 뉴턴' },
+  { text: '성공하는 사람들은 매일 어려운 일을 한다.', author: '제임스 알투처' },
+  { text: '인생이란 자전거를 타는 것과 같다. 균형을 잡으려면 계속 움직여야 한다.', author: '알베르트 아인슈타인' },
+  { text: '할 수 있다고 생각하는 사람도 옳고, 할 수 없다고 생각하는 사람도 옳다.', author: '헨리 포드' },
+  { text: '배움의 가장 큰 적은 무지가 아니라 배움에 대한 환상이다.', author: '스티븐 호킹' },
+  { text: '모든 전문가는 처음엔 초보자였다.', author: '헬렌 헤이즈' },
+  { text: '책 없는 방은 영혼 없는 몸과 같다.', author: '마르쿠스 키케로' },
+  { text: '끝까지 해내는 사람이 결국 이긴다.', author: '칼빈 쿨리지' },
+  { text: '하루하루를 인생의 마지막 날처럼 살아라.', author: '스티브 잡스' },
+  { text: '우리가 두려워해야 할 것은 두려움 그 자체뿐이다.', author: '프랭클린 루스벨트' },
+  { text: '성공은 열정을 잃지 않고 실패에서 실패로 걸어가는 것이다.', author: '윈스턴 처칠' },
+  { text: '학문을 하는 사람은 날마다 새로운 것을 더한다.', author: '노자' },
+  { text: '글을 읽지 않는 사람은 책을 읽을 줄 모르는 사람보다 나을 것이 없다.', author: '마크 트웨인' },
+  { text: '용기는 두려움이 없는 것이 아니라, 두려움보다 중요한 것이 있다고 판단하는 것이다.', author: '넬슨 만델라' },
+];
+
+function QuoteBanner() {
+  const [quote, setQuote] = useState(STUDY_QUOTES[0]);
+  useEffect(() => {
+    setQuote(STUDY_QUOTES[Math.floor(Math.random() * STUDY_QUOTES.length)]);
+  }, []);
+  return (
+    <div style={{
+      backgroundColor: 'rgba(255,255,255,0.15)',
+      borderRadius: 14,
+      padding: '10px 18px',
+      maxWidth: 300,
+      backdropFilter: 'blur(4px)',
+    }}>
+      <p style={{ margin: 0, fontSize: 11, color: 'rgba(255,255,255,0.75)', marginBottom: 4 }}>💬 오늘의 명언</p>
+      <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#fff', lineHeight: 1.55 }}>
+        &ldquo;{quote.text}&rdquo;
+      </p>
+      <p style={{ margin: '5px 0 0', fontSize: 11, color: 'rgba(255,255,255,0.7)', textAlign: 'right' as const }}>
+        — {quote.author}
+      </p>
+    </div>
+  );
+}
+
 const featureCards = [
   {
     href: '/translate',
@@ -186,27 +263,7 @@ export default function DashboardPage() {
             환영합니다{userName ? `, ${userName}님` : ''}! 👋
           </h1>
         </div>
-        <div style={{
-          backgroundColor: 'rgba(255,255,255,0.15)',
-          borderRadius: 14,
-          padding: '10px 18px',
-          maxWidth: 280,
-          backdropFilter: 'blur(4px)',
-        }}>
-          <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.75)', marginBottom: 3 }}>💬 오늘의 한마디</p>
-          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#fff', lineHeight: 1.5 }}>
-            {[
-              '작은 노력이 쌓여 큰 실력이 돼요! 💪',
-              '오늘 배운 것은 평생의 자산이에요 ✨',
-              '틀려도 괜찮아요, 도전하는 게 최고예요! 🌟',
-              '꾸준함이 가장 강한 무기예요 🔥',
-              '오늘도 한 걸음 성장했어요! 🌱',
-              '실수는 성장의 발판이에요 🚀',
-              '포기하지 않으면 반드시 해낼 수 있어요! 🎯',
-              '배움에는 끝이 없어요, 즐겨봐요! 📚',
-            ][new Date().getDay() % 8]}
-          </p>
-        </div>
+        <QuoteBanner />
       </div>
 
       {/* 통계 3칸 */}
