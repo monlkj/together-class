@@ -157,7 +157,8 @@ function VoiceTranslateTab() {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const { speaking, speak } = useSpeak();
-  const recognitionRef = useRef<SpeechRecognition | null>(null);
+  // eslint-disable-next-line @typescript-eslint/no-explicit-any
+  const recognitionRef = useRef<any>(null);
   const api = new WebApiClient();
 
   useEffect(() => {
@@ -165,28 +166,30 @@ function VoiceTranslateTab() {
   }, []);
 
   const startListening = () => {
-    const SR = (window as typeof window & { SpeechRecognition?: typeof SpeechRecognition; webkitSpeechRecognition?: typeof SpeechRecognition }).SpeechRecognition ?? (window as typeof window & { webkitSpeechRecognition?: typeof SpeechRecognition }).webkitSpeechRecognition;
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const w = window as any;
+    const SR = w.SpeechRecognition ?? w.webkitSpeechRecognition;
     if (!SR) { setError('이 브라우저는 음성 인식을 지원하지 않아요. Chrome을 사용해주세요.'); return; }
 
     setError(null);
     setTranscript('');
     setResultText(null);
 
-    const recognition = new SR();
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    const recognition: any = new SR();
     recognition.lang = 'ko-KR';
     recognition.interimResults = true;
     recognition.maxAlternatives = 1;
     recognitionRef.current = recognition;
 
     recognition.onstart = () => setListening(true);
-    recognition.onresult = (e: SpeechRecognitionEvent) => {
-      const t = Array.from(e.results).map(r => r[0].transcript).join('');
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onresult = (e: any) => {
+      const t = Array.from(e.results).map((r: any) => r[0].transcript).join('');
       setTranscript(t);
     };
-    recognition.onend = async () => {
+    recognition.onend = () => {
       setListening(false);
-      const final = recognitionRef.current ? transcript : '';
-      // transcript가 state라서 클로저 문제 방지
       setTranscript(prev => {
         if (prev.trim()) {
           setLoading(true);
@@ -201,7 +204,8 @@ function VoiceTranslateTab() {
         return prev;
       });
     };
-    recognition.onerror = (e: SpeechRecognitionErrorEvent) => {
+    // eslint-disable-next-line @typescript-eslint/no-explicit-any
+    recognition.onerror = (e: any) => {
       setListening(false);
       if (e.error !== 'no-speech') setError(`음성 인식 오류: ${e.error}`);
     };
