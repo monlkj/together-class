@@ -306,6 +306,7 @@ export default function RecordsPage() {
   useEffect(() => { if (tab === 'records') fetchRecords(); }, [tab]);
 
   // ─── 복습 퀴즈 상태 ───
+  const correctSoundRef = useRef<HTMLAudioElement | null>(null);
   type QuizStep = 'intro' | 'quiz' | 'result';
   const [quizStep, setQuizStep] = useState<QuizStep>('intro');
   const [diffFilter, setDiffFilter] = useState<Difficulty | 'all'>('all');
@@ -388,6 +389,10 @@ export default function RecordsPage() {
       correct = checkShortAnswer(shortInput, q.keywords ?? [String(q.answer)]);
     }
     setIsCorrect(correct);
+    if (correct && correctSoundRef.current) {
+      correctSoundRef.current.currentTime = 0;
+      correctSoundRef.current.play().catch(() => {});
+    }
     setConfirmed(true);
     setAnswers(prev => [...prev, correct]);
   };
@@ -414,6 +419,7 @@ export default function RecordsPage() {
 
   return (
     <div style={{ display: 'flex', flexDirection: 'column', gap: '20px' }}>
+      <audio ref={correctSoundRef} src="/bgm.mp3" preload="auto" />
       {/* 헤더 */}
       <div>
         <h1 style={s.title}>📊 학습 기록 & 복습</h1>
