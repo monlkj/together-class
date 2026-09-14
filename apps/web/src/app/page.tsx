@@ -186,27 +186,6 @@ export default function DashboardPage() {
             환영합니다{userName ? `, ${userName}님` : ''}! 👋
           </h1>
         </div>
-        <div style={{ display: 'flex', alignItems: 'center', gap: 8, flexWrap: 'wrap' as const }}>
-          <span style={{ fontSize: 12, fontWeight: 'bold', color: 'rgba(255,255,255,0.7)', marginRight: 4 }}>학습 언어</span>
-          {Object.values(SUPPORTED_LANGUAGES).map((l) => (
-            <button
-              key={l.code}
-              onClick={() => setSelectedLang(l.code)}
-              style={{
-                padding: '6px 13px',
-                borderRadius: 20,
-                border: '1.5px solid rgba(255,255,255,0.4)',
-                backgroundColor: selectedLang === l.code ? '#fff' : 'rgba(255,255,255,0.15)',
-                color: selectedLang === l.code ? '#0D9488' : '#fff',
-                cursor: 'pointer',
-                fontSize: 12,
-                fontWeight: 600,
-              }}
-            >
-              {l.flagEmoji} {l.nameNative}
-            </button>
-          ))}
-        </div>
       </div>
 
       {/* 통계 3칸 */}
