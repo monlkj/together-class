@@ -186,6 +186,27 @@ export default function DashboardPage() {
             환영합니다{userName ? `, ${userName}님` : ''}! 👋
           </h1>
         </div>
+        <div style={{
+          backgroundColor: 'rgba(255,255,255,0.15)',
+          borderRadius: 14,
+          padding: '10px 18px',
+          maxWidth: 280,
+          backdropFilter: 'blur(4px)',
+        }}>
+          <p style={{ margin: 0, fontSize: 12, color: 'rgba(255,255,255,0.75)', marginBottom: 3 }}>💬 오늘의 한마디</p>
+          <p style={{ margin: 0, fontSize: 13, fontWeight: 600, color: '#fff', lineHeight: 1.5 }}>
+            {[
+              '작은 노력이 쌓여 큰 실력이 돼요! 💪',
+              '오늘 배운 것은 평생의 자산이에요 ✨',
+              '틀려도 괜찮아요, 도전하는 게 최고예요! 🌟',
+              '꾸준함이 가장 강한 무기예요 🔥',
+              '오늘도 한 걸음 성장했어요! 🌱',
+              '실수는 성장의 발판이에요 🚀',
+              '포기하지 않으면 반드시 해낼 수 있어요! 🎯',
+              '배움에는 끝이 없어요, 즐겨봐요! 📚',
+            ][new Date().getDay() % 8]}
+          </p>
+        </div>
       </div>
 
       {/* 통계 3칸 */}
