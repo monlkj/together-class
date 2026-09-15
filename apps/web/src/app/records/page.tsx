@@ -427,13 +427,33 @@ export default function RecordsPage() {
       </div>
 
       {/* 탭 */}
-      <div style={s.tabRow}>
-        <button onClick={() => setTab('records')} style={{ ...s.tab, ...(tab === 'records' ? s.tabActive : {}) }}>
-          📂 학습 기록
-        </button>
-        <button onClick={() => setTab('quiz')} style={{ ...s.tab, ...(tab === 'quiz' ? s.tabActive : {}) }}>
-          📝 복습 퀴즈
-        </button>
+      <div style={{ ...s.tabRow, justifyContent: 'space-between', alignItems: 'center' }}>
+        <div style={{ display: 'flex', gap: '8px' }}>
+          <button onClick={() => setTab('records')} style={{ ...s.tab, ...(tab === 'records' ? s.tabActive : {}) }}>
+            📂 학습 기록
+          </button>
+          <button onClick={() => setTab('quiz')} style={{ ...s.tab, ...(tab === 'quiz' ? s.tabActive : {}) }}>
+            📝 복습 퀴즈
+          </button>
+        </div>
+        {tab === 'records' && records.length > 0 && (
+          <button
+            onClick={async () => {
+              if (!confirm('학습 기록을 모두 삭제할까요? 되돌릴 수 없어요.')) return;
+              const { data: { user } } = await supabase.auth.getUser();
+              if (!user) return;
+              await supabase.from('learning_records').delete().eq('user_id', user.id);
+              setRecords([]);
+            }}
+            style={{
+              padding: '7px 14px', borderRadius: 8,
+              border: '1.5px solid #FCA5A5', background: '#FEF2F2',
+              color: '#EF4444', fontSize: 12, fontWeight: 700, cursor: 'pointer',
+            }}
+          >
+            🗑️ 모두 삭제
+          </button>
+        )}
       </div>
 
       {/* ─── 학습 기록 탭 ─── */}
