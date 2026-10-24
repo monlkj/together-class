@@ -285,8 +285,8 @@ export default function AdminPage() {
   const handleDeleteRecord = async (rec: RecentRecord) => {
     if (deletingRecId) return;
     const label = (TYPE_META[rec.type] ?? TYPE_META['default']).label;
-    const scoreNote = rec.score > 0 ? `\n학생의 누적 점수에서 ${rec.score}P가 함께 빠져요.` : '';
-    if (!confirm(`${rec.userName} 학생의 "${label}" 기록을 삭제할까요?${scoreNote}\n삭제하면 되돌릴 수 없어요.`)) return;
+    const scoreNote = rec.score > 0 ? `\n누적 점수에서 ${rec.score}P가 함께 빠져요.` : '';
+    if (!confirm(`${rec.userName}의 "${label}" 기록을 삭제할까요?${scoreNote}\n삭제하면 되돌릴 수 없어요.`)) return;
 
     setDeletingRecId(rec.id);
     try {
@@ -327,7 +327,7 @@ export default function AdminPage() {
     if (deletingRecId || rows.length === 0) return;
     const totalPts = rows.reduce((s, r) => s + r.score, 0);
     const answer = window.prompt(
-      `조회된 기록 ${rows.length}건을 모두 삭제할까요?\n학생들의 누적 점수에서 ${totalPts}P가 함께 빠지고, 되돌릴 수 없어요.\n\n계속하려면 "삭제"라고 입력하세요.`,
+      `조회된 기록 ${rows.length}건을 모두 삭제할까요?\n누적 점수에서 ${totalPts}P가 함께 빠지고, 되돌릴 수 없어요.\n\n계속하려면 "삭제"라고 입력하세요.`,
     );
     if (answer?.trim() !== '삭제') return;
 
@@ -343,9 +343,6 @@ export default function AdminPage() {
       if (!res.ok) throw new Error(json.error ?? '삭제하지 못했어요.');
 
       await loadData(true);
-      if (json.skipped > 0) {
-        alert(`${json.deleted}건을 삭제했어요.\n${json.skipped}건은 다른 반 학생이나 교사 계정의 기록이라 삭제하지 않았어요.`);
-      }
     } catch (e) {
       alert('기록 삭제 실패: ' + (e instanceof Error ? e.message : String(e)));
     }
