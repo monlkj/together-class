@@ -2,24 +2,14 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { SUPPORTED_LANGUAGES, LanguageCode } from '@dahamkke/shared';
+import type { DialogMessage } from '@dahamkke/domain';
+import { WebApiClient } from '../../lib/apiClient';
 
-const MYMEMORY_CODE: Record<string, string> = {
-  ko: 'ko', ru: 'ru', zh: 'zh-CN', vi: 'vi', uz: 'uz', kk: 'kk',
-};
+const api = new WebApiClient();
 
 async function translateToNative(text: string, lang: string): Promise<string> {
   if (lang === 'ko') return text;
-  try {
-    const code = MYMEMORY_CODE[lang] ?? lang;
-    const res = await fetch(
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=ko|${code}`
-    );
-    const data = await res.json();
-    if (data?.responseStatus === 200 && data?.responseData?.translatedText) {
-      return data.responseData.translatedText;
-    }
-  } catch {}
-  return text;
+  return (await api.translateText(text, lang as LanguageCode)) ?? text;
 }
 
 const TOPICS = [
@@ -193,32 +183,21 @@ export default function DebatePage() {
 
     const userNative = await translateToNative(msg, nativeLang);
     const newUser: Message = { id: Date.now().toString(), sender: 'user', textKo: msg, textNative: userNative };
-    const updatedMessages = [...messagesRef.current, newUser];
-    setMessages(updatedMessages);
+    const previous = messagesRef.current;
+    setMessages([...previous, newUser]);
 
     try {
-      const systemPrompt = `너는 초등학생 AI 토론 친구 민준이야. 오늘 토론 주제는 "${selectedTopic.title}"이고, 핵심 질문은 "${selectedTopic.question}"이야.
-규칙:
-- 초등학생 눈높이에 맞는 쉽고 친근한 말투로 대화해
-- 학생의 의견을 존중하되 반론이나 새로운 관점도 제시해
-- 마지막에는 반드시 생각을 더 발전시킬 수 있는 질문을 해
-- 150자 이내로 간결하게 답해
-- 이모지를 1~2개 자연스럽게 써도 좋아`;
-
-      const history = updatedMessages.map(m => ({
-        role: m.sender === 'user' ? 'user' : 'model',
-        text: m.textKo,
+      const history: DialogMessage[] = previous.map(m => ({
+        role: m.sender === 'user' ? 'user' : 'assistant',
+        contentKo: m.textKo,
       }));
-
-      const res = await fetch('/api/ai-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ systemPrompt, messages: history }),
+      const res = await api.debate({
+        topic: `${selectedTopic.title}: ${selectedTopic.question}`,
+        message: msg,
+        userLang: nativeLang,
+        history,
       });
-      const json = await res.json();
-      const aiKo = json.text ?? '잠시 후 다시 시도해줘!';
-      const aiNative = await translateToNative(aiKo, nativeLang);
-      setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', textKo: aiKo, textNative: aiNative }]);
+      setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', textKo: res.replyKo, textNative: res.replyUser }]);
     } catch {
       setMessages(prev => [...prev, { id: (Date.now() + 1).toString(), sender: 'ai', textKo: '연결 오류가 발생했어. 다시 시도해줘!', textNative: '연결 오류가 발생했어. 다시 시도해줘!' }]);
     }

@@ -2,6 +2,9 @@
 
 import React, { useState, useRef } from 'react';
 import { SUPPORTED_LANGUAGES, LanguageCode } from '@dahamkke/shared';
+import { WebApiClient } from '../../lib/apiClient';
+
+const api = new WebApiClient();
 
 declare global {
   interface Window {
@@ -12,10 +15,6 @@ declare global {
 
 const SPEECH_LANG: Record<string, string> = {
   ko: 'ko-KR', ru: 'ru-RU', zh: 'zh-CN', vi: 'vi-VN', uz: 'uz-UZ', kk: 'kk-KZ',
-};
-
-const MYMEMORY_CODE: Record<string, string> = {
-  ko: 'ko', ru: 'ru', zh: 'zh-CN', vi: 'vi', uz: 'uz', kk: 'kk',
 };
 
 const LANG_ABBR: Record<string, string> = {
@@ -45,19 +44,9 @@ export default function InterpretPage() {
     if (text) navigator.clipboard.writeText(text).catch(() => {});
   };
 
-  const myMemoryTranslate = async (text: string, from: string, to: string): Promise<string> => {
-    try {
-      const fromCode = MYMEMORY_CODE[from] ?? from;
-      const toCode = MYMEMORY_CODE[to] ?? to;
-      const res = await fetch(
-        `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=${fromCode}|${toCode}`
-      );
-      const data = await res.json();
-      if (data?.responseStatus === 200 && data?.responseData?.translatedText) {
-        return data.responseData.translatedText;
-      }
-    } catch {}
-    return text;
+  const interpretText = async (text: string, from: LanguageCode, to: LanguageCode): Promise<string> => {
+    const res = await api.interpret({ text, fromLang: from, toLang: to });
+    return res.resultText;
   };
 
   const startSpeaking = (direction: 'ko' | 'native') => {
@@ -94,12 +83,12 @@ export default function InterpretPage() {
 
       if (direction === 'ko') {
         setKoText(spoken);
-        const translated = await myMemoryTranslate(spoken, 'ko', nativeLang);
+        const translated = await interpretText(spoken, 'ko', nativeLang);
         setNativeText(translated);
         speak(translated, nativeLang);
       } else {
         setNativeText(spoken);
-        const translated = await myMemoryTranslate(spoken, nativeLang, 'ko');
+        const translated = await interpretText(spoken, nativeLang, 'ko');
         setKoText(translated);
         speak(translated, 'ko');
       }

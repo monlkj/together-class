@@ -2,24 +2,14 @@
 
 import React, { useState, useRef, useEffect } from 'react';
 import { SUPPORTED_LANGUAGES, LanguageCode } from '@dahamkke/shared';
+import type { DialogMessage } from '@dahamkke/domain';
+import { WebApiClient } from '../../lib/apiClient';
 
-const MYMEMORY_CODE: Record<string, string> = {
-  ko: 'ko', ru: 'ru', zh: 'zh-CN', vi: 'vi', uz: 'uz', kk: 'kk',
-};
+const api = new WebApiClient();
 
 async function translateToNative(text: string, lang: string): Promise<string> {
   if (lang === 'ko') return text;
-  try {
-    const code = MYMEMORY_CODE[lang] ?? lang;
-    const res = await fetch(
-      `https://api.mymemory.translated.net/get?q=${encodeURIComponent(text)}&langpair=ko|${code}`
-    );
-    const data = await res.json();
-    if (data?.responseStatus === 200 && data?.responseData?.translatedText) {
-      return data.responseData.translatedText;
-    }
-  } catch {}
-  return text;
+  return (await api.translateText(text, lang as LanguageCode)) ?? text;
 }
 
 const CHARACTERS = [
@@ -204,40 +194,27 @@ export default function PersonaPage() {
 
     const userNative = await translateToNative(msg, nativeLang);
     const newUser = { id: Date.now().toString(), sender: 'user' as const, textKo: msg, textNative: userNative };
-    const updatedMessages = [...messagesRef.current, newUser];
-    setMessages(updatedMessages);
+    const previous = messagesRef.current;
+    setMessages([...previous, newUser]);
 
     try {
-      const systemPrompt = `너는 ${selected.name}이야. ${selected.desc}
-시대: ${selected.era}
-교과서 출처: ${selected.source}
-
-규칙:
-- 1인칭으로 그 시대 인물처럼 대화해
-- 초등학생이 이해할 수 있는 쉬운 말로 설명해
-- 역사적 사실을 바탕으로 감정을 담아 답해
-- 마지막에 학생에게 생각을 묻는 질문을 꼭 해
-- 200자 이내로 답해`;
-
-      const history = updatedMessages.map(m => ({
-        role: m.sender === 'user' ? 'user' : 'model',
-        text: m.textKo,
+      const history: DialogMessage[] = previous.map(m => ({
+        role: m.sender === 'user' ? 'user' : 'assistant',
+        contentKo: m.textKo,
       }));
-
-      const res = await fetch('/api/ai-chat', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ systemPrompt, messages: history }),
+      const res = await api.askPersona({
+        personaId: selected.id,
+        characterName: selected.name,
+        question: msg,
+        userLang: nativeLang,
+        history,
       });
-      const json = await res.json();
-      const replyKo = json.text ?? '잠시 후 다시 시도해줘!';
-      const replyNative = await translateToNative(replyKo, nativeLang);
       setMessages(prev => [...prev, {
         id: (Date.now() + 1).toString(),
         sender: 'persona',
-        textKo: replyKo,
-        textNative: replyNative,
-        sources: [selected.source],
+        textKo: res.answerKo,
+        textNative: res.answerTranslated,
+        sources: res.sources.length ? res.sources : [selected.source],
       }]);
     } catch {
       setMessages(prev => [...prev, {

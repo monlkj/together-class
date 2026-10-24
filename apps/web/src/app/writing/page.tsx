@@ -2,6 +2,9 @@
 
 import React, { useRef, useState, useEffect, useCallback } from 'react';
 import { supabase } from '../../lib/supabase';
+import { WebApiClient, type HandwritingResult } from '../../lib/apiClient';
+
+const api = new WebApiClient();
 
 const WORDS = [
   // 자연
@@ -70,6 +73,9 @@ export default function WritingPage() {
   const [savedIndices, setSavedIndices] = useState<Set<number>>(new Set());
   const [isSaving, setIsSaving] = useState(false);
   const [saveError, setSaveError] = useState<string | null>(null);
+  const [aiChecking, setAiChecking] = useState(false);
+  const [aiResult, setAiResult] = useState<HandwritingResult | null>(null);
+  const [aiError, setAiError] = useState<string | null>(null);
 
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const [isDrawing, setIsDrawing] = useState(false);
@@ -106,7 +112,32 @@ export default function WritingPage() {
     if (mode !== 'select') {
       initCanvas();
     }
+    setAiResult(null);
+    setAiError(null);
   }, [index, mode, initCanvas]);
+
+  const clearCanvas = () => {
+    initCanvas();
+    setAiResult(null);
+    setAiError(null);
+  };
+
+  const checkWithAI = async () => {
+    const canvas = canvasRef.current;
+    if (!canvas || aiChecking) return;
+    if (!visited.has(index)) {
+      setAiResult(null);
+      setAiError('먼저 글씨를 써 보세요!');
+      return;
+    }
+    setAiChecking(true);
+    setAiError(null);
+    setAiResult(null);
+    const res = await api.checkHandwriting(canvas.toDataURL('image/png'), current);
+    if (res.error !== undefined) setAiError(res.error);
+    else setAiResult(res.data);
+    setAiChecking(false);
+  };
 
   const getPos = (e: React.MouseEvent | React.TouchEvent) => {
     const canvas = canvasRef.current!;
@@ -252,7 +283,7 @@ export default function WritingPage() {
           ))}
         </div>
         <div style={{ display: 'flex', gap: 8 }}>
-          <button onClick={initCanvas} style={{
+          <button onClick={clearCanvas} style={{
             padding: '8px 16px', borderRadius: 10, backgroundColor: '#F3F4F6',
             border: '1px solid #D1D5DB', fontSize: 13, fontWeight: 'bold', color: '#374151', cursor: 'pointer',
           }}>
@@ -272,6 +303,42 @@ export default function WritingPage() {
             {isSaving ? '저장 중...' : currentSaved ? '✅ 저장완료 (+1P)' : '📂 저장 (+1P)'}
           </button>
         </div>
+      </div>
+      {/* AI 채점 (점수 +1P 와는 별개로 피드백만 보여줍니다) */}
+      <div style={{ marginTop: 12 }}>
+        <button
+          onClick={checkWithAI}
+          disabled={aiChecking}
+          style={{
+            width: '100%', padding: '11px 16px', borderRadius: 12, fontSize: 14, fontWeight: 'bold',
+            border: '2px solid #8B5CF6', backgroundColor: aiChecking ? '#F5F3FF' : '#fff', color: '#7C3AED',
+            cursor: aiChecking ? 'default' : 'pointer',
+          }}
+        >
+          {aiChecking ? '🤖 AI가 글씨를 읽고 있어요...' : '🤖 AI에게 글씨 채점받기'}
+        </button>
+        {aiError && (
+          <div style={{ marginTop: 10, padding: '8px 14px', borderRadius: 10, background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#DC2626', fontSize: 12, fontWeight: 600 }}>
+            ⚠️ {aiError}
+          </div>
+        )}
+        {aiResult && (
+          <div style={{ marginTop: 10, padding: '14px 16px', borderRadius: 14, background: '#F5F3FF', border: '1px solid #DDD6FE', display: 'flex', alignItems: 'center', gap: 14 }}>
+            <div style={{
+              flexShrink: 0, minWidth: 64, textAlign: 'center', padding: '8px 10px', borderRadius: 12, fontWeight: 'bold', color: '#fff',
+              backgroundColor: aiResult.score >= 80 ? '#10B981' : aiResult.score >= 50 ? '#F59E0B' : '#EF4444',
+            }}>
+              <div style={{ fontSize: 22, lineHeight: 1.1 }}>{aiResult.score}</div>
+              <div style={{ fontSize: 10 }}>점</div>
+            </div>
+            <div style={{ minWidth: 0 }}>
+              <div style={{ fontSize: 12, color: '#6B7280', marginBottom: 2 }}>
+                {aiResult.recognized ? `AI가 읽은 글자: "${aiResult.recognized}"` : 'AI가 글자를 읽지 못했어요'}
+              </div>
+              <div style={{ fontSize: 14, fontWeight: 'bold', color: '#4C1D95', wordBreak: 'keep-all' }}>{aiResult.feedback}</div>
+            </div>
+          </div>
+        )}
       </div>
       {saveError && (
         <div style={{ marginTop: 10, padding: '8px 14px', borderRadius: 10, background: '#FEF2F2', border: '1px solid #FCA5A5', color: '#DC2626', fontSize: 12, fontWeight: 600 }}>
