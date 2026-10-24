@@ -78,6 +78,7 @@ export default function AdminPage() {
   // ── 학습 분석 필터 ──
   const [filterStudent, setFilterStudent] = useState('');
   const [filterType, setFilterType] = useState('');
+  const [deletingRecId, setDeletingRecId] = useState<string | null>(null);
 
   // ── 과제 현황 ──
   interface HomeworkItem { id: string; title: string; description: string | null; due_date: string | null; student_id: string | null; allow_dismiss: boolean; created_at: string; }
@@ -277,6 +278,47 @@ export default function AdminPage() {
       setLoading(false);
     })();
   }, []);
+
+  const handleDeleteRecord = async (rec: RecentRecord) => {
+    if (deletingRecId) return;
+    const label = (TYPE_META[rec.type] ?? TYPE_META['default']).label;
+    const scoreNote = rec.score > 0 ? `\n학생의 누적 점수에서 ${rec.score}P가 함께 빠져요.` : '';
+    if (!confirm(`${rec.userName} 학생의 "${label}" 기록을 삭제할까요?${scoreNote}\n삭제하면 되돌릴 수 없어요.`)) return;
+
+    setDeletingRecId(rec.id);
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/delete-record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ recordId: rec.id }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? '삭제하지 못했어요.');
+
+      // 화면에서도 바로 반영: 목록에서 빼고 학생의 점수/건수를 다시 계산
+      const remaining = recentRecs.filter(r => r.id !== rec.id);
+      const latestOfStudent = remaining
+        .filter(r => r.user_id === rec.user_id)
+        .reduce<string | null>((latest, r) => (!latest || r.created_at > latest ? r.created_at : latest), null);
+      const monday = getMondayISO();
+      setRecentRecs(remaining);
+      setStudents(prev => prev.map(s => {
+        if (s.id !== rec.user_id) return s;
+        const recordCount = Math.max(0, s.recordCount - 1);
+        return {
+          ...s,
+          recordCount,
+          totalScore: s.totalScore - rec.score,
+          weekScore: new Date(rec.created_at) >= monday ? s.weekScore - rec.score : s.weekScore,
+          lastActive: s.lastActive === rec.created_at ? (latestOfStudent ?? (recordCount > 0 ? s.lastActive : null)) : s.lastActive,
+        };
+      }));
+    } catch (e) {
+      alert('기록 삭제 실패: ' + (e instanceof Error ? e.message : String(e)));
+    }
+    setDeletingRecId(null);
+  };
 
   const handleDeleteStudent = async (studentId: string, studentName: string) => {
     if (!confirm(`"${studentName}" 학생을 클래스에서 제외할까요?\n계정은 유지되며 언제든 다시 등록할 수 있습니다.`)) return;
@@ -672,6 +714,21 @@ export default function AdminPage() {
                         </div>
                       </div>
                       {r.score > 0 && <div style={{ fontSize: 13, fontWeight: 'bold', color: '#F59E0B', flexShrink: 0 }}>+{r.score}P</div>}
+                      {students.some(s => s.id === r.user_id) && (
+                        <button
+                          onClick={() => handleDeleteRecord(r)}
+                          disabled={deletingRecId !== null}
+                          title="이 기록 삭제"
+                          style={{
+                            flexShrink: 0, padding: '5px 10px', borderRadius: 8, fontSize: 12, fontWeight: 'bold',
+                            border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626',
+                            cursor: deletingRecId !== null ? 'default' : 'pointer',
+                            opacity: deletingRecId !== null && deletingRecId !== r.id ? 0.5 : 1,
+                          }}
+                        >
+                          {deletingRecId === r.id ? '삭제 중...' : '🗑️ 삭제'}
+                        </button>
+                      )}
                     </div>
                   );
                 })
