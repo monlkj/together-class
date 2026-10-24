@@ -187,9 +187,9 @@ export default function AdminPage() {
   };
 
 
-  useEffect(() => {
-    (async () => {
-      setLoading(true);
+  const loadData = async (silent = false) => {
+    await (async () => {
+      if (!silent) setLoading(true);
       try {
         const { data: { user } } = await supabase.auth.getUser();
         if (!user) { setLoading(false); return; }
@@ -277,7 +277,10 @@ export default function AdminPage() {
       } catch {}
       setLoading(false);
     })();
-  }, []);
+  };
+
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  useEffect(() => { loadData(); }, []);
 
   const handleDeleteRecord = async (rec: RecentRecord) => {
     if (deletingRecId) return;
@@ -314,6 +317,35 @@ export default function AdminPage() {
           lastActive: s.lastActive === rec.created_at ? (latestOfStudent ?? (recordCount > 0 ? s.lastActive : null)) : s.lastActive,
         };
       }));
+    } catch (e) {
+      alert('기록 삭제 실패: ' + (e instanceof Error ? e.message : String(e)));
+    }
+    setDeletingRecId(null);
+  };
+
+  const handleDeleteShown = async (rows: RecentRecord[]) => {
+    if (deletingRecId || rows.length === 0) return;
+    const totalPts = rows.reduce((s, r) => s + r.score, 0);
+    const answer = window.prompt(
+      `조회된 기록 ${rows.length}건을 모두 삭제할까요?\n학생들의 누적 점수에서 ${totalPts}P가 함께 빠지고, 되돌릴 수 없어요.\n\n계속하려면 "삭제"라고 입력하세요.`,
+    );
+    if (answer?.trim() !== '삭제') return;
+
+    setDeletingRecId('__all__');
+    try {
+      const { data: { session } } = await supabase.auth.getSession();
+      const res = await fetch('/api/delete-record', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', Authorization: `Bearer ${session?.access_token ?? ''}` },
+        body: JSON.stringify({ recordIds: rows.map(r => r.id) }),
+      });
+      const json = await res.json().catch(() => ({}));
+      if (!res.ok) throw new Error(json.error ?? '삭제하지 못했어요.');
+
+      await loadData(true);
+      if (json.skipped > 0) {
+        alert(`${json.deleted}건을 삭제했어요.\n${json.skipped}건은 다른 반 학생이나 교사 계정의 기록이라 삭제하지 않았어요.`);
+      }
     } catch (e) {
       alert('기록 삭제 실패: ' + (e instanceof Error ? e.message : String(e)));
     }
@@ -683,9 +715,21 @@ export default function AdminPage() {
                   <option key={k} value={k}>{v.icon} {v.label}</option>
                 ))}
               </select>
-              <div style={{ marginLeft: 'auto', display: 'flex', gap: 12 }}>
+              <div style={{ marginLeft: 'auto', display: 'flex', alignItems: 'center', gap: 12, flexWrap: 'wrap' as const }}>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>총 <b style={{ color: '#1F2937' }}>{filtered.length}</b>건</span>
                 <span style={{ fontSize: 13, color: '#6B7280' }}>획득 포인트 <b style={{ color: '#F59E0B' }}>{totalPts}P</b></span>
+                <button
+                  onClick={() => handleDeleteShown(filtered)}
+                  disabled={deletingRecId !== null || filtered.length === 0}
+                  style={{
+                    padding: '7px 12px', borderRadius: 10, fontSize: 12, fontWeight: 'bold',
+                    border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626',
+                    cursor: deletingRecId !== null || filtered.length === 0 ? 'default' : 'pointer',
+                    opacity: filtered.length === 0 ? 0.5 : 1,
+                  }}
+                >
+                  {deletingRecId === '__all__' ? '삭제 중...' : `🗑️ 조회된 ${filtered.length}건 모두 삭제`}
+                </button>
               </div>
             </div>
 
@@ -714,21 +758,19 @@ export default function AdminPage() {
                         </div>
                       </div>
                       {r.score > 0 && <div style={{ fontSize: 13, fontWeight: 'bold', color: '#F59E0B', flexShrink: 0 }}>+{r.score}P</div>}
-                      {students.some(s => s.id === r.user_id) && (
-                        <button
-                          onClick={() => handleDeleteRecord(r)}
-                          disabled={deletingRecId !== null}
-                          title="이 기록 삭제"
-                          style={{
-                            flexShrink: 0, padding: '5px 10px', borderRadius: 8, fontSize: 12, fontWeight: 'bold',
-                            border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626',
-                            cursor: deletingRecId !== null ? 'default' : 'pointer',
-                            opacity: deletingRecId !== null && deletingRecId !== r.id ? 0.5 : 1,
-                          }}
-                        >
-                          {deletingRecId === r.id ? '삭제 중...' : '🗑️ 삭제'}
-                        </button>
-                      )}
+                      <button
+                        onClick={() => handleDeleteRecord(r)}
+                        disabled={deletingRecId !== null}
+                        title="이 기록 삭제"
+                        style={{
+                          flexShrink: 0, padding: '5px 10px', borderRadius: 8, fontSize: 12, fontWeight: 'bold',
+                          border: '1px solid #FCA5A5', background: '#FEF2F2', color: '#DC2626',
+                          cursor: deletingRecId !== null ? 'default' : 'pointer',
+                          opacity: deletingRecId !== null && deletingRecId !== r.id ? 0.5 : 1,
+                        }}
+                      >
+                        {deletingRecId === r.id ? '삭제 중...' : '🗑️ 삭제'}
+                      </button>
                     </div>
                   );
                 })
